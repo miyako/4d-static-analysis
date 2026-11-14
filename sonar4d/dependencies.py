@@ -78,6 +78,21 @@ def cache_directory() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "sonar-4d"
 
 
+def cache_paths() -> list[Path]:
+    """Folders worth keeping between runs on ephemeral runners: sonar-4d's own cache (the pinned script and
+    each project's last lock) and the emulator's verified archive store, which it keeps beside it in the
+    same per-user cache folder. Both are re-verified on use, so a restored copy cannot install altered code."""
+    return [cache_directory(), cache_directory().parent / "miyako-4d-dependencies" / "archives"]
+
+
+def cache_settings(project: Path, tool_build: str) -> dict:
+    """Inputs for the GitHub Action's dependency cache step."""
+    return {
+        "enabled": declared(project), "paths": [str(path) for path in cache_paths()],
+        "prefix": f"sonar4d-dependencies-{SCRIPT_COMMIT[:12]}-{_sha256(tool_build.encode())[:12]}-",
+    }
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

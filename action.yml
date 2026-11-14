@@ -35,6 +35,12 @@ inputs:
       analysis copy; "offline" reuses verified archives only; "none" leaves declared dependencies incomplete.
     required: false
     default: install
+  cache-dependencies:
+    description: >-
+      Native mode, GitHub-hosted runners only: keep the verified dependency archives and the project's last
+      lock between runs with actions/cache, so releases are not downloaded again and "offline" can work.
+    required: false
+    default: "true"
   github-token:
     description: >-
       Optional token for GitHub dependency releases (private repositories and rate limits).
@@ -51,6 +57,9 @@ outputs:
   sarif-id:
     description: GitHub's uploaded SARIF identifier.
     value: ${{ steps.upload.outputs.sarif-id }}
+  dependencies-cache-hit:
+    description: '"true" when the dependency cache was restored for the exact key, "false" otherwise.'
+    value: ${{ steps.dependency-cache.outputs.cache-hit || 'false' }}
 runs:
   using: composite
   steps:
@@ -62,7 +71,12 @@ runs:
         PROJECT: ${{ inputs.project }}
         LEAVE_UNOPENED: ${{ inputs.leave-unopened }}
         DEPENDENCIES: ${{ inputs.dependencies }}
+        CACHE_DEPENDENCIES: ${{ inputs.cache-dependencies }}
       run: |
+        case "$CACHE_DEPENDENCIES" in
+          true|false) ;;
+          *) echo "::error::cache-dependencies must be true or false"; exit 2 ;;
+        esac
         case "$DEPENDENCIES" in
           install|offline|none) ;;
           *) echo "::error::dependencies must be install, offline or none"; exit 2 ;;
@@ -98,6 +112,41 @@ runs:
         runtime_parent="$(mktemp -d "$RUNNER_TEMP/sonar4d-tool.XXXXXX")"
         python -m sonar4d.provision --destination "$runtime_parent/runtime"
         echo "tool-path=$runtime_parent/runtime/tool4d.app/Contents/MacOS/tool4d" >> "$GITHUB_OUTPUT"
+    - name: Prepare the dependency cache
+      id: dependency-cache-settings
+      if: >-
+        inputs.project != '' && inputs.dependencies != 'none' && inputs.cache-dependencies == 'true'
+        && (inputs.download-tool4d == 'true' || inputs.native-tool != '')
+        && runner.environment == 'github-hosted'
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        SONAR4D_PROJECT: ${{ inputs.project }}
+        DOWNLOAD_TOOL4D: ${{ inputs.download-tool4d }}
+      run: |
+        python - <<'PY'
+        import json, os
+        from pathlib import Path
+        from sonar4d import dependencies, provision
+        build = provision.RUNTIME_VERSION if os.environ["DOWNLOAD_TOOL4D"] == "true" else "custom tool4d"
+        settings = dependencies.cache_settings(Path(os.environ["GITHUB_WORKSPACE"], os.environ["SONAR4D_PROJECT"]), build)
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"enabled={str(settings['enabled']).lower()}\n")
+            output.write(f"prefix={settings['prefix']}\n")
+            output.write("paths<<SONAR4D_PATHS\n" + "\n".join(settings["paths"]) + "\nSONAR4D_PATHS\n")
+        print(json.dumps(settings))
+        PY
+    - name: Restore the dependency cache
+      id: dependency-cache
+      if: steps.dependency-cache-settings.outputs.enabled == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.dependency-cache-settings.outputs.paths }}
+        key: >-
+          ${{ steps.dependency-cache-settings.outputs.prefix }}${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('**/Project/Sources/dependencies.json', '**/environment4d.json') }}
+        restore-keys: |
+          ${{ steps.dependency-cache-settings.outputs.prefix }}${{ runner.os }}-${{ runner.arch }}-
     - name: Analyze 4D sources
       id: analyze
       shell: bash

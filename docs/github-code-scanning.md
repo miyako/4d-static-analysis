@@ -35,9 +35,12 @@ Optional inputs:
 | `project` | Repository-relative `.4DProject`, required with either native mode |
 | `native-timeout` | Native observation deadline, default 15 seconds |
 | `leave-unopened` | Optional newline-separated repository-relative source paths for native coverage experiments |
+| `dependencies` | `install` (default), `offline` (verified stored archives and the saved lock only) or `none` |
+| `github-token` | Optional read-only token for GitHub dependency releases; passed only to the dependency script |
+| `cache-dependencies` | `"true"` (default) keeps the verified archive store and the project's last lock between runs with `actions/cache` on GitHub-hosted runners; `"false"` disables it |
 
-Outputs are `sarif-file`, `analysis-file` (runner-local absolute paths) and
-`sarif-id` (GitHub's upload identifier). Reports use a fresh directory beneath
+Outputs are `sarif-file`, `analysis-file` (runner-local absolute paths),
+`sarif-id` (GitHub's upload identifier) and `dependencies-cache-hit`. Reports use a fresh directory beneath
 `RUNNER_TEMP`, outside the source tree. You can save the two report outputs as
 workflow artifacts if desired; they contain source-derived information.
 

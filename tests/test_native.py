@@ -199,6 +199,24 @@ class NativeContractTests(unittest.TestCase):
         self.assertNotIn("L:", blocker)
         self.assertNotIn("C:", blocker)
 
+    def test_cache_settings_cover_both_caches_and_pinned_inputs(self):
+        with patch("sonar4d.dependencies.cache_directory", return_value=self.directory / "Caches/sonar-4d"):
+            paths = dependencies.cache_paths()
+            self.assertEqual(paths, [self.directory / "Caches/sonar-4d",
+                                     self.directory / "Caches/miyako-4d-dependencies/archives"])
+            project = self.directory / "P/Project/P.4DProject"
+            project.parent.mkdir(parents=True)
+            project.write_text("{}")
+            settings = dependencies.cache_settings(project, "21.0 build 21.100422")
+            self.assertFalse(settings["enabled"])
+            (project.parent / "Sources").mkdir()
+            (project.parent / "Sources/dependencies.json").write_text('{"dependencies":{"A":{"github":"o/A"}}}')
+            settings = dependencies.cache_settings(project, "21.0 build 21.100422")
+        self.assertTrue(settings["enabled"])
+        self.assertEqual(settings["paths"], [str(path) for path in paths])
+        self.assertIn(dependencies.SCRIPT_COMMIT[:12], settings["prefix"])
+        self.assertNotEqual(settings["prefix"], dependencies.cache_settings(project, "custom tool4d")["prefix"])
+
     def test_lock_is_kept_per_project_for_offline_runs(self):
         script, log = self.fake_dependencies({"incomplete": [], "dependencies": {}})
         packages = [self.directory / f"lock{index}" for index in range(3)]
