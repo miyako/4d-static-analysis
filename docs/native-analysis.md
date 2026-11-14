@@ -159,8 +159,8 @@ folder before tool4d starts, because tool4d 21.0 in language-server mode
 ignores the dependency cache but loads `Components/` (observed locally on
 build 21.100422: an `SVG_CLEAR` call is flagged as a syntax error without
 4D SVG and accepted once it is installed). The local dependency in this fixture
-cannot be installed, so the run reports
-`Declared 4D dependencies are incomplete: AbsentComponent: local dependencies are not installed by sonar-4d`.
+is declared without a path, which 4D does not resolve, so the run reports
+`Declared 4D dependencies are incomplete: AbsentComponent: local component with no path was not found or not resolved`.
 `tests/fixtures/github-dependencies` is the positive counterpart: the hosted
 workflow installs 4D SVG from GitHub, then repeats the run offline from the
 verified archive store. Native behavior for an absent dependency is still not a

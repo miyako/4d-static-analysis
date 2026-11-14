@@ -224,7 +224,7 @@ analysis IDs, commit/ref and source locations; the job also verifies that the
 unopened methods were not sent `didOpen`.
 
 That run predates dependency installation; the missing-dependency job now
-expects the `local dependencies are not installed` reason, and a
+expects the `local component with no path was not found` reason, and a
 `github-dependencies` job checks online and offline GitHub installation.
 
 Native build/platform restrictions, dependency blockers and R3 coordinate

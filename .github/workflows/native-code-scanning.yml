@@ -100,7 +100,7 @@ jobs:
           root = Path(os.environ["RUNNER_TEMP"]) / "missing-dependency-report"
           report = json.loads((root / "analysis.json").read_text())
           assert report["complete"] is False
-          assert report["errors"] == ["Declared 4D dependencies are incomplete: AbsentComponent: local dependencies are not installed by sonar-4d"]
+          assert report["errors"] == ["Declared 4D dependencies are incomplete: AbsentComponent: local component with no path was not found or not resolved"]
           assert not (root / "sonar-issues.json").exists()
           assert len(report["findings"]) == 1
           finding = report["findings"][0]

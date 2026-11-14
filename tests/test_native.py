@@ -161,6 +161,44 @@ class NativeContractTests(unittest.TestCase):
         dependencies.install(package / "other", "21.0 contract-test", self.directory, script=script)
         self.assertIsNone(json.loads(log.read_text())["token"])
 
+    def test_install_copies_local_components_inside_the_workspace(self):
+        workspace = self.directory / "workspace"
+        package = workspace / "Probe"
+        package.mkdir(parents=True)
+
+        def component(folder):
+            (folder / "Project").mkdir(parents=True)
+            (folder / "Project" / f"{folder.stem}.4DProject").write_text("{}")
+            return str(folder)
+
+        existing = package / "Components/C.4dbase"
+        existing.mkdir(parents=True)
+        script, _ = self.fake_dependencies({
+            "incomplete": [{"name": "E", "reason": "cannot parse its dependencies.json"}],
+            "dependencies": {
+                "L": {"source": "local", "local": "libs/L.4dbase", "path": component(workspace / "libs/L.4dbase")},
+                "O": {"source": "local", "local": "/elsewhere/O.4dbase",
+                      "path": component(self.directory / "outside/O.4dbase")},
+                "M": {"source": "local", "local": "libs/M.4dbase"},
+                "A": {"source": "local", "local": ".", "path": str(workspace)},
+                "C": {"source": "local", "local": "libs/C.4dbase", "path": component(workspace / "libs/C.4dbase")},
+                "E": {"source": "local", "local": "libs/E.4dbase", "path": str(workspace / "libs/E.4dbase"),
+                      "error": "cannot parse its dependencies.json"},
+            }})
+        summary, blocker = dependencies.install(package, "21.0 contract-test", self.directory, script=script,
+                                                workspace=workspace)
+        self.assertEqual((summary["installed"], summary["providedByComponents"]), (["L"], ["C"]))
+        self.assertEqual(summary["reuse"], {"L": "local"})
+        self.assertTrue((package / "Components/L.4dbase/Project/L.4DProject").is_file())
+        self.assertFalse(any((existing).iterdir()))
+        self.assertFalse((package / "Components/O.4dbase").exists())
+        self.assertIn("O: local component '/elsewhere/O.4dbase' is outside the analyzed repository", blocker)
+        self.assertIn("M: local component 'libs/M.4dbase' was not found or not resolved", blocker)
+        self.assertIn("A: local component '.' contains the analyzed project", blocker)
+        self.assertEqual(blocker.count("E:"), 1)
+        self.assertNotIn("L:", blocker)
+        self.assertNotIn("C:", blocker)
+
     def test_lock_is_kept_per_project_for_offline_runs(self):
         script, log = self.fake_dependencies({"incomplete": [], "dependencies": {}})
         packages = [self.directory / f"lock{index}" for index in range(3)]
@@ -221,7 +259,7 @@ class NativeContractTests(unittest.TestCase):
             result = probe(self.root, self.project, self.tool, [self.source], 2,
                            dependency_options={"script": script})
         self.assertFalse(result["complete"])
-        self.assertIn("L: local dependencies", result["reason"])
+        self.assertIn("L: local component with no path was not found or not resolved", result["reason"])
 
     def test_probe_applies_the_environment_4d_would_use(self):
         # 4D uses environment4d.json in the package folder or the nearest parent folder. The analysis copy must

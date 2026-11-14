@@ -105,10 +105,31 @@ def runtime_version(version: str) -> str:
     return match[1]
 
 
+def _local_source(entry: dict, package: Path, workspace: Path | None) -> tuple[Path | None, str | None]:
+    """Return the folder to copy for a local component, or the reason it is not installed."""
+    declared = repr(entry["local"]) if entry.get("local") else "with no path"
+    if workspace is None:
+        return None, "local dependencies are not installed by sonar-4d"
+    if not entry.get("path"):
+        return None, f"local component {declared} was not found or not resolved"
+    folder = Path(entry["path"]).resolve()
+    if not folder.is_relative_to(workspace.resolve()):
+        return None, (f"local component {declared} is outside the analyzed repository; "
+                      "sonar-4d only installs local components inside it")
+    if not folder.is_dir():
+        return None, f"local component {declared} was not found"
+    if package.resolve().is_relative_to(folder):
+        return None, f"local component {declared} contains the analyzed project"
+    return folder, None
+
+
 def install(package: Path, version: str, temporary: Path, *, offline: bool = False,
             token: str | None = None, script: Path | None = None,
-            lock_key: str | None = None) -> tuple[dict, str | None]:
+            lock_key: str | None = None, workspace: Path | None = None) -> tuple[dict, str | None]:
     """Resolve and install dependencies for the workspace copy `package`.
+
+    Local (`path`) components are installed only when they resolve inside `workspace`, the analysis copy of
+    the repository; anything else stays incomplete. Without `workspace`, no local component is installed.
 
     Returns a summary for the observation and a blocker reason, or None when every dependency is installed.
     Like 4D, offline runs resolve version anchors from a lock file; sonar-4d keeps the last lock written
@@ -154,7 +175,21 @@ def install(package: Path, version: str, temporary: Path, *, offline: bool = Fal
             summary["providedByComponents"].append(name)
             continue
         if entry.get("source") == "local":
-            problems.append(f"{name}: local dependencies are not installed by sonar-4d")
+            if entry.get("error"):
+                continue  # already reported by the emulator (unreadable manifest, version conflict)
+            source, reason = _local_source(entry, package, workspace)
+            if reason:
+                problems.append(f"{name}: {reason}")
+                continue
+            target = components / f"{name}.4dbase"
+            if target.exists():
+                # As in 4D, a copy already in Components/ takes precedence.
+                summary["providedByComponents"].append(name)
+                continue
+            components.mkdir(exist_ok=True)
+            shutil.copytree(source, target)
+            summary["installed"].append(name)
+            summary["reuse"][name] = "local"
             continue
         source = entry.get("path")
         if not source or not Path(source).is_dir():
