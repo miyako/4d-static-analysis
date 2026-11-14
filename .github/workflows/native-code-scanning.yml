@@ -9,6 +9,7 @@ on:
       - scripts/verify_code_scanning.py
       - tests/fixtures/**
       - tests/test_provision.py
+      - tests/test_tool4d.py
       - .github/sonar4d-native-*.json
       - .github/workflows/native-code-scanning.yml
   workflow_dispatch:
