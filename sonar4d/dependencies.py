@@ -20,8 +20,8 @@ import tempfile
 import urllib.request
 
 
-SCRIPT_COMMIT = "8d8c361ff353a76a57332629d387702e1448bdc1"
-SCRIPT_SHA256 = "742da959baec85890f4288eb4f1545700309c4af8f9f1a2fddd122aa43afb104"
+SCRIPT_COMMIT = "b38215002e88819330e4c86150b60e5cc2b3fb08"
+SCRIPT_SHA256 = "a09c215b6286c92c51651f394bd26cd741a3dea745f227c40f4ea12c139ba329"
 SCRIPT_URL = (
     f"https://raw.githubusercontent.com/miyako/4D/{SCRIPT_COMMIT}"
     "/.github/actions/dependencies/fetch_dependencies.py"
