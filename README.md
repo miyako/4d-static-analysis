@@ -12,7 +12,7 @@ This is **not a complete compiler analyzer or a security product**.
 | GitHub code scanning | Reusable action, opt-in public tool4d download, and live-verified custom/native hosted workflows |
 | Sonar generic JSON | Current rules/issues format; correct CODE_SMELL/MAINTAINABILITY and BUG/RELIABILITY mappings |
 | Native SonarQube Java plugin | Registers `fourd` / `.4dm`; built and unit/packaging tested, not server-deployment tested |
-| tool4d backend | Response-bound workspace syntax checking on verified tool4d 21.0 builds 21.100301 and 21.100422, macOS ARM64; GitHub release dependencies installed into the analysis copy; other builds and unresolved dependencies fail closed |
+| tool4d backend | Response-bound workspace syntax checking on verified tool4d 21.0 builds 21.100301 and 21.100422, macOS ARM64; GitHub release dependencies and in-repository local components installed into the analysis copy; other builds and unresolved dependencies fail closed |
 
 ## Run the working analyzer
 
@@ -294,8 +294,13 @@ sonar-4d then copies each resolved component into the **analysis copy's**
 tool4d 21.0 in language-server mode does not load the dependency cache, but it
 does load `Components/`, so components are installed there. A component
 already present in the project's `Components` folder keeps precedence, as in 4D.
-Local (`path`) and GitLab dependencies, unresolved versions and failed downloads
-make the analysis incomplete (exit `2`).
+Local (`path`) components are copied there too when they resolve inside the analyzed
+repository: the emulation resolves a relative `path` in `dependencies.json` from the
+folder that contains the project package, and one in `environment4d.json` from that
+file's folder, as 4D does. A local component that is missing, declared without a path,
+outside the repository, or declared by a GitHub component (not yet observed in 4D)
+makes the analysis incomplete (exit `2`), as do GitLab dependencies, unresolved
+versions and failed downloads.
 
 Like 4D, the emulation applies the `environment4d.json` in the package folder or
 the nearest parent folder, and only to names that `dependencies.json` declares.
@@ -322,7 +327,7 @@ action, use the `dependencies` (`install`, `offline` or `none`) and
 ## Scope and next direction
 
 The next substantive gap is exercising the packaged plugin and reports against
-a pinned SonarQube server/scanner. GitLab and local dependencies, richer
+a pinned SonarQube server/scanner. GitLab dependencies, richer
 fixtures and R3 coordinate correctness are additional bounded follow-ups.
 A future native
 sensor/rule repository would be a separate feature, not a rename of external
