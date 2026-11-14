@@ -16,7 +16,7 @@ import tempfile
 import time
 from urllib.parse import unquote, urlsplit
 
-from . import dependencies
+from . import dependencies, tool4d
 from .model import native_findings
 
 
@@ -124,10 +124,7 @@ def probe(
         plugins = project.parent.parent / "Plugins"
         if plugins.is_dir() and any(plugins.iterdir()):
             dependency_blocker = "Native Plugins dependencies are not validated by this foundation"
-        version = subprocess.run(
-            [str(tool), "--version"], capture_output=True, text=True, timeout=min(seconds, 10),
-            check=True,
-        ).stdout.strip()
+        version = tool4d.version(tool, min(seconds, 10))
         result["version"] = version
         major = re.match(r"(\d+)", version)
         if not major or int(major[1]) < 21:

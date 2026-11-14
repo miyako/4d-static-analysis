@@ -11,6 +11,8 @@ import sys
 import tarfile
 import tempfile
 
+from . import tool4d
+
 
 SOURCE_URL = (
     "https://resources-download.4d.com/release/21.x/21.0/latest/mac/tool4d_arm64.tar.xz"
@@ -88,9 +90,7 @@ def install(destination: Path, archive: Path | None = None) -> dict:
              SIGNATURE_REQUIREMENT, str(runtime / "tool4d.app")],
             check=True, capture_output=True, text=True, timeout=30,
         )
-        version = subprocess.run(
-            [str(tool), "--version"], check=True, capture_output=True, text=True, timeout=15,
-        ).stdout.strip()
+        version = tool4d.version(tool, 15)
         if version != RUNTIME_VERSION:
             raise ProvisionError(f"Unexpected tool4d version: {version!r}")
         provenance = {
