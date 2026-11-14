@@ -1,6 +1,11 @@
 # 4D Community Plugin for SonarQube
 
 A bounded, working foundation for local 4D analysis and SonarQube integration.
+
+> This repository was renamed from `miyako/sonar-4d` to `miyako/4d-static-analysis`. GitHub redirects the old
+> name, but update `uses:` references to the new one. The command (`sonar-4d`), the Python package (`sonar4d`), the
+> cache folder, the SARIF tool name and the default code-scanning category are unchanged, so existing alerts keep
+> their history.
 This is **not a complete compiler analyzer or a security product**.
 
 | Surface | Implemented status |
@@ -224,7 +229,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: miyako/sonar-4d@main
+      - uses: miyako/4d-static-analysis@main
         with:
           category: sonar-4d
           # config: .github/sonar4d.json

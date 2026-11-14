@@ -35,7 +35,7 @@ def sarif(findings: list[Finding], complete: bool, errors: list[str]) -> dict:
         "runs": [{
             "tool": {"driver": {
                 "name": "sonar-4d", "version": __version__,
-                "informationUri": "https://github.com/miyako/sonar-4d",
+                "informationUri": "https://github.com/miyako/4d-static-analysis",
                 "rules": [{
                     "id": rule, "name": rule.replace("-", "_"),
                     "shortDescription": {"text": RULES[rule]["name"]},
