@@ -324,6 +324,17 @@ passed only to the dependency script and never written to reports. In the
 action, use the `dependencies` (`install`, `offline` or `none`) and
 `github-token` inputs.
 
+GitHub-hosted runners discard the user cache after each run. The action therefore
+restores and saves it with `actions/cache` when the project declares dependencies:
+sonar-4d's cache (pinned script, last lock per project) and the emulator's verified
+archive store (`~/Library/Caches/miyako-4d-dependencies/archives` on macOS). The key
+covers the pinned emulator commit, the tool4d build and the dependency manifests,
+with a fallback to the newest cache for the same emulator and build. A restored
+archive is re-hashed and checked against the release digest before use, so the
+cache cannot change what is installed; it only avoids repeated downloads and lets
+`dependencies: offline` work on hosted runners. Set `cache-dependencies: "false"`
+to turn it off.
+
 ## Scope and next direction
 
 The next substantive gap is exercising the packaged plugin and reports against

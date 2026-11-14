@@ -115,6 +115,47 @@ jobs:
           path: ${{ runner.temp }}/missing-dependency-report/analysis.json
           if-no-files-found: error
 
+  action-dependency-cache:
+    # Runs the action on a project with a GitHub dependency. The first run of a key saves the cache; a rerun
+    # (or a later push with the same manifests) restores it, as `dependencies-cache-hit` shows.
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Analyze with dependencies installed through the action
+        id: analyze
+        uses: ./
+        with:
+          download-tool4d: "true"
+          project: tests/fixtures/github-dependencies/Project/GitHubDependencies.4DProject
+          config: .github/sonar4d-native-dependencies.json
+          native-timeout: "60"
+          github-token: ${{ github.token }}
+          category: sonar-4d-native-dependencies
+      - name: Check the installation and report the cache
+        env:
+          ANALYSIS_FILE: ${{ steps.analyze.outputs.analysis-file }}
+          CACHE_HIT: ${{ steps.analyze.outputs.dependencies-cache-hit }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          analysis = Path(os.environ["ANALYSIS_FILE"])
+          assert json.loads(analysis.read_text())["complete"] is True
+          summary = json.loads((analysis.parent / "native-observation.json").read_text())["dependencies"]
+          assert summary["installed"] == ["4D SVG"], summary
+          print("dependencies-cache-hit:", os.environ["CACHE_HIT"], json.dumps(summary))
+          PY
+          test -d "$HOME/Library/Caches/miyako-4d-dependencies/archives/github"
+          test -d "$HOME/Library/Caches/sonar-4d/scripts"
+          git diff --exit-code
+
   github-dependencies:
     runs-on: macos-15
     timeout-minutes: 15
