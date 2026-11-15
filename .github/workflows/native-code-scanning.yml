@@ -76,6 +76,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Install tool4d's Linux libraries (experimental)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libfreeimage3 libc++1-18 libc++abi1-18 libunwind-18
       - name: Analyze with public tool4d
         id: analyze
         uses: ./
@@ -138,6 +143,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install tool4d's Linux libraries (experimental)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libfreeimage3 libc++1-18 libc++abi1-18 libunwind-18
       - name: Provision public tool4d
         run: |
           experimental=()
@@ -236,6 +246,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install tool4d's Linux libraries (experimental)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libfreeimage3 libc++1-18 libc++abi1-18 libunwind-18
       - name: Provision public tool4d
         run: |
           experimental=()

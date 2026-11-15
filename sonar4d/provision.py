@@ -37,6 +37,8 @@ LINUX_SOURCE_URL = "https://resources-download.4d.com/release/21.x/21.0/latest/l
 LINUX_ARCHIVE_SHA256 = "5f2232d4f236483f0c9adefb15561eec01cb9d60b9985f8f9805d5087982fe7d"
 LINUX_RUNTIME_VERSION = "21.0 build 21.100422"
 LINUX_EXECUTABLE = Path("bin/tool4d")
+# Shared libraries the Linux tool4d loads that Ubuntu 24.04 does not install by default (observed on ubuntu-latest).
+LINUX_PACKAGES = ["libfreeimage3", "libc++1-18", "libc++abi1-18", "libunwind-18"]
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
 
@@ -102,8 +104,19 @@ def extract_archive(archive: Path, destination: Path, root: str = "tool4d.app") 
         source.extractall(destination, members=members, filter="data")
 
 
+def missing_libraries(tool: Path) -> list[str]:
+    """Shared libraries the dynamic loader cannot find for `tool` (Linux only)."""
+    completed = subprocess.run(["ldd", str(tool)], capture_output=True, text=True, timeout=30, check=False)
+    return sorted({line.split("=>")[0].strip() for line in completed.stdout.splitlines() if "not found" in line})
+
+
 def verify_signature(name: str, runtime: Path, tool: Path) -> str:
     if name == "linux-x64":
+        missing = missing_libraries(tool)
+        if missing:
+            raise ProvisionError(
+                f"tool4d needs shared libraries that are not installed: {', '.join(missing)}. "
+                f"On Ubuntu 24.04: sudo apt-get install {' '.join(LINUX_PACKAGES)}")
         return "none: 4D ships no signature for Linux; only the SHA-256 pin vouches for the archive"
     if name == "windows-x64":
         script = ("$s = Get-AuthenticodeSignature -LiteralPath $env:SONAR4D_TOOL; "

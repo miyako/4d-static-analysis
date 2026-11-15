@@ -189,7 +189,7 @@ class ProvisionTests(unittest.TestCase):
     def test_linux_needs_the_experimental_opt_in(self):
         archive = self.archive("bin/tool4d")
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        result_version = SimpleNamespace(stdout=provision.LINUX_RUNTIME_VERSION, stderr="")
+        result_version = SimpleNamespace(stdout=provision.LINUX_RUNTIME_VERSION, stderr="", returncode=0)
         with (
             patch("sonar4d.provision.sys.platform", "linux"),
             patch("sonar4d.provision.platform.machine", return_value="x86_64"),
@@ -204,8 +204,27 @@ class ProvisionTests(unittest.TestCase):
         self.assertTrue(result["toolPath"].endswith(str(Path("bin/tool4d"))))
         self.assertIn("SHA-256 pin", result["signer"])
         commands = [c.args[0] for c in run.call_args_list]
-        self.assertEqual(len(commands), 1)  # no signature tool runs on Linux: only the version check
-        self.assertEqual(commands[0][-1], "--version")
+        self.assertEqual([c[0] for c in commands][0], "ldd")  # a library check instead of a signature
+        self.assertEqual(commands[-1][-1], "--version")
+
+    def test_linux_names_missing_libraries_and_the_packages(self):
+        archive = self.archive("bin/tool4d")
+
+        def execute(command, **_kwargs):
+            if command[0] == "ldd":
+                return SimpleNamespace(stdout="\tlibfreeimage.so.3 => not found\n\tlibc.so.6 => /lib/libc.so.6\n",
+                                       stderr="", returncode=1)
+            return SimpleNamespace(stdout=provision.LINUX_RUNTIME_VERSION, stderr="")
+
+        with (
+            patch("sonar4d.provision.sys.platform", "linux"),
+            patch("sonar4d.provision.platform.machine", return_value="x86_64"),
+            patch.object(provision, "LINUX_ARCHIVE_SHA256", hashlib.sha256(archive.read_bytes()).hexdigest()),
+            patch.object(provision.subprocess, "run", side_effect=execute),
+        ):
+            with self.assertRaisesRegex(provision.ProvisionError, "libfreeimage.so.3.*apt-get install libfreeimage3"):
+                provision.install(self.destination, archive, experimental=True)
+        self.assertFalse(self.destination.exists())
 
     def test_download_is_https_only_credential_free_and_bounded(self):
         archive = self.archive()
