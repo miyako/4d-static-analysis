@@ -96,5 +96,6 @@ with socket.create_connection(("127.0.0.1", port)) as connection:
                     }})
                 if mode == "foreign-uri":
                     send({"method": "textDocument/publishDiagnostics", "params": {
-                        "uri": Path("/outside.4dm").as_uri(), "diagnostics": [diagnostic],
+                        # abspath gives "/outside.4dm" on POSIX and "<drive>:\\outside.4dm" on Windows.
+                        "uri": Path(os.path.abspath(os.sep + "outside.4dm")).as_uri(), "diagnostics": [diagnostic],
                     }})
