@@ -92,6 +92,20 @@ jobs:
           native-timeout: "60"
           category: ${{ matrix.category }}
           experimental-linux: ${{ matrix.experimental || 'false' }}
+      - name: Show tool4d's observation after a Linux failure (experimental)
+        if: failure() && runner.os == 'Linux'
+        run: |
+          for f in "$RUNNER_TEMP"/*/native-observation.json "$RUNNER_TEMP"/*/report/native-observation.json; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python - "$f" <<'PY'
+          import json, sys
+          o = json.load(open(sys.argv[1]))
+          print(json.dumps({k: o.get(k) for k in ("version", "complete", "reason", "processExitCode", "events")}, indent=2))
+          for k in ("stdoutTail", "stderrTail"):
+              print(f"--- {k}:"); print((o.get(k) or "")[-6000:])
+          PY
+          done
       - name: Record the Linux runtime (experimental)
         if: runner.os == 'Linux'
         env:
@@ -182,6 +196,20 @@ jobs:
           print("Actual missing-component diagnostic preserved; no successful import report generated.")
           PY
           git diff --exit-code
+      - name: Show tool4d's observation after a Linux failure (experimental)
+        if: failure() && runner.os == 'Linux'
+        run: |
+          for f in "$RUNNER_TEMP"/*/native-observation.json "$RUNNER_TEMP"/*/report/native-observation.json; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python - "$f" <<'PY'
+          import json, sys
+          o = json.load(open(sys.argv[1]))
+          print(json.dumps({k: o.get(k) for k in ("version", "complete", "reason", "processExitCode", "events")}, indent=2))
+          for k in ("stdoutTail", "stderrTail"):
+              print(f"--- {k}:"); print((o.get(k) or "")[-6000:])
+          PY
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: native-missing-dependency-evidence-${{ matrix.os }}
@@ -286,6 +314,20 @@ jobs:
           done
           test ! -e tests/fixtures/github-dependencies/Project/Components
           git diff --exit-code
+      - name: Show tool4d's observation after a Linux failure (experimental)
+        if: failure() && runner.os == 'Linux'
+        run: |
+          for f in "$RUNNER_TEMP"/*/native-observation.json "$RUNNER_TEMP"/*/report/native-observation.json; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python - "$f" <<'PY'
+          import json, sys
+          o = json.load(open(sys.argv[1]))
+          print(json.dumps({k: o.get(k) for k in ("version", "complete", "reason", "processExitCode", "events")}, indent=2))
+          for k in ("stdoutTail", "stderrTail"):
+              print(f"--- {k}:"); print((o.get(k) or "")[-6000:])
+          PY
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: native-github-dependencies-evidence-${{ matrix.os }}
