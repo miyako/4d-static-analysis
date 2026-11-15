@@ -1,0 +1,21 @@
+title: 4D static analysis
+description: >-
+  Check 4D code in CI with tool4d's own compiler diagnostics and custom rules, and report the findings to GitHub code
+  scanning, Jenkins, SonarQube and other tools.
+baseurl: /4d-static-analysis
+repository: miyako/4d-static-analysis
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+nav:
+  - title: Overview
+    url: /
+  - title: GitHub code scanning
+    url: /github/
+  - title: Jenkins
+    url: /jenkins/
+  - title: Other platforms
+    url: /other-platforms/
+  - title: Reference
+    url: /reference/
