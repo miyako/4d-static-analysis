@@ -35,6 +35,12 @@ inputs:
       analysis copy; "offline" reuses verified archives only; "none" leaves declared dependencies incomplete.
     required: false
     default: install
+  experimental-linux:
+    description: >-
+      "true" allows native analysis on Linux x86-64 (ubuntu-latest), an experimental platform: tool4d is pinned by
+      SHA-256 only (4D ships no Linux signature) and results are marked experimental in analysis.json.
+    required: false
+    default: "false"
   cache-dependencies:
     description: >-
       Native mode, GitHub-hosted runners only: keep the verified dependency archives and the project's last
@@ -72,7 +78,12 @@ runs:
         LEAVE_UNOPENED: ${{ inputs.leave-unopened }}
         DEPENDENCIES: ${{ inputs.dependencies }}
         CACHE_DEPENDENCIES: ${{ inputs.cache-dependencies }}
+        EXPERIMENTAL_LINUX: ${{ inputs.experimental-linux }}
       run: |
+        case "$EXPERIMENTAL_LINUX" in
+          true|false) ;;
+          *) echo "::error::experimental-linux must be true or false"; exit 2 ;;
+        esac
         case "$CACHE_DEPENDENCIES" in
           true|false) ;;
           *) echo "::error::cache-dependencies must be true or false"; exit 2 ;;
@@ -108,9 +119,13 @@ runs:
       if: inputs.download-tool4d == 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
+      env:
+        EXPERIMENTAL_LINUX: ${{ inputs.experimental-linux }}
       run: |
         runtime_parent="$(mktemp -d "$RUNNER_TEMP/sonar4d-tool.XXXXXX")"
-        python -m sonar4d.provision --destination "$runtime_parent/runtime" > "$runtime_parent/provenance.json"
+        experimental=()
+        if [[ "$EXPERIMENTAL_LINUX" == true ]]; then experimental=(--experimental); fi
+        python -m sonar4d.provision --destination "$runtime_parent/runtime" "${experimental[@]}" > "$runtime_parent/provenance.json"
         tool_path="$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["toolPath"])' "$runtime_parent/provenance.json")"
         echo "tool-path=$tool_path" >> "$GITHUB_OUTPUT"
     - name: Prepare the dependency cache
@@ -159,6 +174,7 @@ runs:
         SONAR4D_NATIVE_TIMEOUT: ${{ inputs.native-timeout }}
         SONAR4D_LEAVE_UNOPENED: ${{ inputs.leave-unopened }}
         SONAR4D_DEPENDENCIES: ${{ inputs.dependencies }}
+        SONAR4D_EXPERIMENTAL_LINUX: ${{ inputs.experimental-linux }}
         SONAR4D_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         report_parent="$(mktemp -d "$RUNNER_TEMP/sonar4d.XXXXXX")"
@@ -169,6 +185,7 @@ runs:
         fi
         if [[ -n "$SONAR4D_NATIVE_TOOL" ]]; then
           args+=(--native-tool "$SONAR4D_NATIVE_TOOL")
+          if [[ "$SONAR4D_EXPERIMENTAL_LINUX" == true ]]; then args+=(--experimental-platform); fi
         fi
         if [[ -n "$SONAR4D_PROJECT" ]]; then
           args+=(--project "$SONAR4D_PROJECT")

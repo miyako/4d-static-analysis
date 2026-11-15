@@ -342,6 +342,17 @@ class NativeContractTests(unittest.TestCase):
                     self.assertTrue(any(word in result["reason"] for word in
                                         ("disconnected", "BrokenPipeError", "ConnectionResetError")))
 
+    def test_experimental_platform_needs_the_opt_in_and_is_marked(self):
+        with patch("sonar4d.native.VERIFIED_PLATFORM", False), patch("sonar4d.native.EXPERIMENTAL_PLATFORM", True), \
+                patch.dict(os.environ, {"SONAR4D_FAKE_MODE": "workspace-full",
+                                        "SONAR4D_FAKE_VERSION": "21.0 contract-test"}):
+            refused = probe(self.root, self.project, self.tool, [self.source], 2)
+            accepted = probe(self.root, self.project, self.tool, [self.source], 2, experimental=True)
+        self.assertFalse(refused["complete"])
+        self.assertIn("--experimental-platform", refused["reason"])
+        self.assertTrue(accepted["complete"], accepted["reason"])
+        self.assertTrue(accepted["experimental"])
+
     def test_version_missing_executable_and_invalid_timeout(self):
         result = self.call_probe("diagnostics", "20.6 old")
         self.assertIn("21+ required", result["reason"])

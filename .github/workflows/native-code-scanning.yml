@@ -57,6 +57,21 @@ jobs:
             category: sonar-4d-native-clean-windows
             project: tests/fixtures/native-clean/Project/Clean.4DProject
             unopened: ""
+          # Experimental: Linux x86-64 (opt-in, SHA-256 pin only). Judged against the macOS/Windows expectations.
+          - fixture: errors
+            os: ubuntu-latest
+            category: sonar-4d-native-errors-linux
+            experimental: "true"
+            project: tests/fixtures/native/Project/Probe.4DProject
+            unopened: |
+              tests/fixtures/native/Project/Sources/Methods/Unopened.4dm
+              tests/fixtures/native/Project/Sources/Methods/Callee.4dm
+          - fixture: clean
+            os: ubuntu-latest
+            category: sonar-4d-native-clean-linux
+            experimental: "true"
+            project: tests/fixtures/native-clean/Project/Clean.4DProject
+            unopened: ""
     steps:
       - uses: actions/checkout@v6
         with:
@@ -71,6 +86,23 @@ jobs:
           leave-unopened: ${{ matrix.unopened }}
           native-timeout: "60"
           category: ${{ matrix.category }}
+          experimental-linux: ${{ matrix.experimental || 'false' }}
+      - name: Record the Linux runtime (experimental)
+        if: runner.os == 'Linux'
+        env:
+          ANALYSIS_FILE: ${{ steps.analyze.outputs.analysis-file }}
+        run: |
+          { lsb_release -ds; ldd --version | head -1; } || true
+          python - "$ANALYSIS_FILE" <<'PY'
+          import json, sys
+          from pathlib import Path
+          analysis = json.loads(Path(sys.argv[1]).read_text())
+          observation = json.loads((Path(sys.argv[1]).parent / "native-observation.json").read_text())
+          print(json.dumps({"complete": analysis["complete"], "experimental": analysis.get("experimental"),
+                            "version": observation.get("version"), "reason": observation.get("reason"),
+                            "findings": [(f["path"], f["start_line"], f["message"]) for f in analysis["findings"]]},
+                           indent=2, ensure_ascii=False))
+          PY
       - name: Verify native diagnostics and GitHub processing
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-latest]
+        os: [macos-15, windows-latest, ubuntu-latest]
     defaults:
       run:
         shell: bash
@@ -108,14 +140,16 @@ jobs:
           python-version: "3.12"
       - name: Provision public tool4d
         run: |
-          python -m sonar4d.provision --destination "$RUNNER_TEMP/tool4d-runtime" > "$RUNNER_TEMP/provenance.json"
+          experimental=()
+          if [[ "$RUNNER_OS" == Linux ]]; then experimental=(--experimental); echo "SONAR4D_EXPERIMENTAL=--experimental-platform" >> "$GITHUB_ENV"; fi
+          python -m sonar4d.provision --destination "$RUNNER_TEMP/tool4d-runtime" "${experimental[@]}" > "$RUNNER_TEMP/provenance.json"
           python -c 'import json, sys; print("TOOL4D=" + json.load(open(sys.argv[1]))["toolPath"])' "$RUNNER_TEMP/provenance.json" >> "$GITHUB_ENV"
       - name: Require genuine dependency failure, not a clean scan
         run: |
           status=0
           python -m sonar4d . \
             --config .github/sonar4d-native-missing.json \
-            --native-tool "$TOOL4D" \
+            --native-tool "$TOOL4D" $SONAR4D_EXPERIMENTAL \
             --project tests/fixtures/missing-dependency/Project/MissingDependency.4DProject \
             --native-timeout 60 \
             --output "$RUNNER_TEMP/missing-dependency-report" || status=$?
@@ -190,7 +224,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-latest]
+        os: [macos-15, windows-latest, ubuntu-latest]
     defaults:
       run:
         shell: bash
@@ -204,7 +238,9 @@ jobs:
           python-version: "3.12"
       - name: Provision public tool4d
         run: |
-          python -m sonar4d.provision --destination "$RUNNER_TEMP/tool4d-runtime" > "$RUNNER_TEMP/provenance.json"
+          experimental=()
+          if [[ "$RUNNER_OS" == Linux ]]; then experimental=(--experimental); echo "SONAR4D_EXPERIMENTAL=--experimental-platform" >> "$GITHUB_ENV"; fi
+          python -m sonar4d.provision --destination "$RUNNER_TEMP/tool4d-runtime" "${experimental[@]}" > "$RUNNER_TEMP/provenance.json"
           python -c 'import json, sys; print("TOOL4D=" + json.load(open(sys.argv[1]))["toolPath"])' "$RUNNER_TEMP/provenance.json" >> "$GITHUB_ENV"
       - name: Install GitHub dependencies, then reuse them offline
         env:
@@ -215,7 +251,7 @@ jobs:
             if [[ "$mode" == offline ]]; then flags=(--offline-dependencies); unset SONAR4D_GITHUB_TOKEN; fi
             python -m sonar4d.ci . "${flags[@]}" \
               --config .github/sonar4d-native-dependencies.json \
-              --native-tool "$TOOL4D" \
+              --native-tool "$TOOL4D" $SONAR4D_EXPERIMENTAL \
               --project tests/fixtures/github-dependencies/Project/GitHubDependencies.4DProject \
               --native-timeout 60 \
               --output "$RUNNER_TEMP/dependencies-$mode"

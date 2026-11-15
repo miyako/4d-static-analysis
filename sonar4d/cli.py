@@ -9,7 +9,7 @@ import sys
 from . import __version__
 from .dependencies import TOKEN_ENV
 from .model import native_findings
-from .native import NativeError, VERIFIED_BUILDS, VERIFIED_PLATFORM, probe
+from .native import EXPERIMENTAL_PLATFORM, NativeError, VERIFIED_BUILDS, VERIFIED_PLATFORM, probe
 from .reports import sarif, sonar_generic
 from .rules import analyze_source, load_config, sources
 
@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--native-timeout", type=float, default=15)
     parser.add_argument("--leave-unopened", action="append", default=[],
                         help="Root-relative source path not sent didOpen (still receives pull request)")
+    parser.add_argument("--experimental-platform", action="store_true",
+                        help="Accept native results on an experimental platform (Linux x86-64); marked experimental")
     parser.add_argument("--no-dependencies", action="store_true",
                         help="Do not install declared dependencies; a project that declares any is incomplete")
     parser.add_argument("--offline-dependencies", action="store_true",
@@ -73,12 +75,14 @@ def main(argv: list[str] | None = None) -> int:
                 dependency_options=None if args.no_dependencies else {
                     "offline": args.offline_dependencies, "token": os.environ.get(TOKEN_ENV) or None,
                 },
+                experimental=args.experimental_platform,
             )
             if not native["complete"]:
                 errors.append(native["reason"])
             try:
                 selected = {path.relative_to(root).as_posix() for path in paths}
-                if native["version"] in VERIFIED_BUILDS and VERIFIED_PLATFORM:
+                platform_ok = VERIFIED_PLATFORM or (args.experimental_platform and EXPERIMENTAL_PLATFORM)
+                if native["version"] in VERIFIED_BUILDS and platform_ok:
                     findings.extend(native_findings(root, {
                         path: items for path, items in native["diagnostics"].items() if path in selected
                     }))
@@ -90,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         _write(output / "analysis.json", {
             "schemaVersion": 1, "analyzerVersion": __version__,
             "complete": complete, "backends": ["custom"] + (["tool4d-syntax"] if native else []),
+            "experimental": bool(native and native.get("experimental")),
             "configuration": config,
             "scope": [p.relative_to(root).as_posix() for p in paths],
             "errors": errors, "findings": [finding.to_dict() for finding in findings],

@@ -186,6 +186,27 @@ class ProvisionTests(unittest.TestCase):
             with self.assertRaisesRegex(provision.ProvisionError, "unexpected path"):
                 provision.install(self.destination, archive)
 
+    def test_linux_needs_the_experimental_opt_in(self):
+        archive = self.archive("bin/tool4d")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        result_version = SimpleNamespace(stdout=provision.LINUX_RUNTIME_VERSION, stderr="")
+        with (
+            patch("sonar4d.provision.sys.platform", "linux"),
+            patch("sonar4d.provision.platform.machine", return_value="x86_64"),
+            patch.object(provision, "LINUX_ARCHIVE_SHA256", digest),
+            patch.object(provision.subprocess, "run", return_value=result_version) as run,
+        ):
+            with self.assertRaisesRegex(provision.ProvisionError, "experimental"):
+                provision.install(self.destination, archive)
+            run.assert_not_called()
+            result = provision.install(self.destination, archive, experimental=True)
+        self.assertEqual((result["platform"], result["experimental"]), ("linux-x64", True))
+        self.assertTrue(result["toolPath"].endswith(str(Path("bin/tool4d"))))
+        self.assertIn("SHA-256 pin", result["signer"])
+        commands = [c.args[0] for c in run.call_args_list]
+        self.assertEqual(len(commands), 1)  # no signature tool runs on Linux: only the version check
+        self.assertEqual(commands[0][-1], "--version")
+
     def test_download_is_https_only_credential_free_and_bounded(self):
         archive = self.archive()
         data = archive.read_bytes()

@@ -25,6 +25,9 @@ VERIFIED_BUILDS = {"21.0 build 21.100301", "21.0 build 21.100422"}
 # Native completion is validated on these hosts (CI runs the native fixtures on both).
 VERIFIED_PLATFORMS = {("darwin", "arm64"), ("win32", "amd64")}
 VERIFIED_PLATFORM = (sys.platform, platform.machine().lower()) in VERIFIED_PLATFORMS
+# Experimental: complete only with an explicit opt-in, and the result is marked experimental.
+EXPERIMENTAL_PLATFORMS = {("linux", "x86_64")}
+EXPERIMENTAL_PLATFORM = (sys.platform, platform.machine().lower()) in EXPERIMENTAL_PLATFORMS
 
 class NativeError(Exception):
     pass
@@ -92,7 +95,7 @@ def _copy_workspace(root: Path, destination: Path) -> None:
 
 def probe(
     root: Path, project: Path, tool: Path, opened: list[Path], seconds: float,
-    scope: list[Path] | None = None, dependency_options: dict | None = None,
+    scope: list[Path] | None = None, dependency_options: dict | None = None, experimental: bool = False,
 ) -> dict:
     """Use a full custom workspace response, never silence, to establish coverage."""
     result = {
@@ -315,11 +318,14 @@ def probe(
                                             result["reason"] = dependency_blocker
                                         elif version not in VERIFIED_BUILDS:
                                             result["reason"] = f"Native completion is not validated for build: {version}"
-                                        elif not VERIFIED_PLATFORM:
-                                            result["reason"] = "Native completion is validated only on macOS ARM64 and Windows x64"
+                                        elif not (VERIFIED_PLATFORM or (experimental and EXPERIMENTAL_PLATFORM)):
+                                            result["reason"] = ("Native completion is validated only on macOS ARM64 and "
+                                                                "Windows x64" + ("; Linux x86-64 needs "
+                                                                "--experimental-platform" if EXPERIMENTAL_PLATFORM else ""))
                                         else:
                                             result["complete"] = True
                                             result["reason"] = None
+                                            result["experimental"] = not VERIFIED_PLATFORM
                                         break
                                     else:
                                         result["events"].append("Non-standard experimental/checkSyntax response")

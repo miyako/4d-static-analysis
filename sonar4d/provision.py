@@ -31,6 +31,12 @@ WINDOWS_ARCHIVE_SHA256 = "41c23ea781d9711dbfca693d2aa90e0d8621eb2aa964a651030943
 WINDOWS_RUNTIME_VERSION = "21.0 build 21.100422"
 WINDOWS_EXECUTABLE = Path("tool4d/tool4d.exe")
 WINDOWS_SIGNER = "4D"  # required in the Authenticode signer certificate's subject (O= or CN=)
+# Linux x86-64 (experimental, opt-in): same build as macOS and Windows. 4D ships no signature for it, so only the
+# SHA-256 pin vouches for the archive. Needs glibc 2.38 or later (Ubuntu 24.04+).
+LINUX_SOURCE_URL = "https://resources-download.4d.com/release/21.x/21.0/latest/linux/tool4d_linux.tar.xz"
+LINUX_ARCHIVE_SHA256 = "5f2232d4f236483f0c9adefb15561eec01cb9d60b9985f8f9805d5087982fe7d"
+LINUX_RUNTIME_VERSION = "21.0 build 21.100422"
+LINUX_EXECUTABLE = Path("bin/tool4d")
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
 
@@ -39,13 +45,17 @@ class ProvisionError(Exception):
     pass
 
 
-def host() -> str:
-    """The provisioning platform: macos-arm64 or windows-x64."""
+def host(experimental: bool = False) -> str:
+    """The provisioning platform: macos-arm64, windows-x64, or (experimental) linux-x64."""
     machine = platform.machine().lower()
     if sys.platform == "darwin" and machine == "arm64":
         return "macos-arm64"
     if sys.platform == "win32" and machine in {"amd64", "x86_64"}:
         return "windows-x64"
+    if sys.platform.startswith("linux") and machine in {"x86_64", "amd64"}:
+        if experimental:
+            return "linux-x64"
+        raise ProvisionError("Linux x86-64 provisioning is experimental; pass --experimental to opt in")
     raise ProvisionError("Automatic tool4d provisioning is verified only for macOS ARM64 and Windows x64")
 
 
@@ -54,6 +64,9 @@ def spec(name: str) -> dict:
     if name == "windows-x64":
         return {"url": WINDOWS_SOURCE_URL, "sha256": WINDOWS_ARCHIVE_SHA256, "version": WINDOWS_RUNTIME_VERSION,
                 "executable": WINDOWS_EXECUTABLE, "root": "tool4d"}
+    if name == "linux-x64":
+        return {"url": LINUX_SOURCE_URL, "sha256": LINUX_ARCHIVE_SHA256, "version": LINUX_RUNTIME_VERSION,
+                "executable": LINUX_EXECUTABLE, "root": "bin"}
     return {"url": SOURCE_URL, "sha256": ARCHIVE_SHA256, "version": RUNTIME_VERSION,
             "executable": EXECUTABLE, "root": "tool4d.app"}
 
@@ -90,6 +103,8 @@ def extract_archive(archive: Path, destination: Path, root: str = "tool4d.app") 
 
 
 def verify_signature(name: str, runtime: Path, tool: Path) -> str:
+    if name == "linux-x64":
+        return "none: 4D ships no signature for Linux; only the SHA-256 pin vouches for the archive"
     if name == "windows-x64":
         script = ("$s = Get-AuthenticodeSignature -LiteralPath $env:SONAR4D_TOOL; "
                   "@{status = [string]$s.Status; subject = [string]$s.SignerCertificate.Subject} | ConvertTo-Json -Compress")
@@ -113,8 +128,8 @@ def verify_signature(name: str, runtime: Path, tool: Path) -> str:
     return SIGNATURE_REQUIREMENT
 
 
-def install(destination: Path, archive: Path | None = None) -> dict:
-    name = host()
+def install(destination: Path, archive: Path | None = None, experimental: bool = False) -> dict:
+    name = host(experimental)
     pins = spec(name)
     destination = destination.resolve()
     if destination.exists():
@@ -145,6 +160,8 @@ def install(destination: Path, archive: Path | None = None) -> dict:
             "platform": name, "signatureRequirement" if name == "macos-arm64" else "signer": signature,
             "toolPath": str(destination / pins["executable"]),
         }
+        if name == "linux-x64":
+            provenance["experimental"] = True
         (runtime / "provision.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
         if destination.exists():
             raise ProvisionError("tool4d destination was created concurrently; refusing replacement")
@@ -156,9 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Provision the pinned public tool4d runtime")
     parser.add_argument("--destination", type=Path, required=True, help="New installation directory")
     parser.add_argument("--archive", type=Path, help="Optional cached archive; the same digest pin applies")
+    parser.add_argument("--experimental", action="store_true",
+                        help="Allow experimental platforms (Linux x86-64): SHA-256 pin only, no signature check")
     args = parser.parse_args(argv)
     try:
-        provenance = install(args.destination, args.archive)
+        provenance = install(args.destination, args.archive, args.experimental)
     except (OSError, ValueError, tarfile.TarError, subprocess.SubprocessError, ProvisionError) as error:
         detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else ""
         print(f"sonar-4d provision: {type(error).__name__}: {error}" + (f"\n{detail}" if detail else ""),
