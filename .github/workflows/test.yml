@@ -9,15 +9,25 @@ permissions:
 
 jobs:
   analyzer:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    env:
+      SONAR4D_REQUIRE_SCHEMA: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - run: python -m pip install jsonschema
       - run: python -m unittest discover -s tests -v
       - run: python -m pip install --no-deps .
       - run: sonar-4d --version

@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             "scope": [p.relative_to(root).as_posix() for p in paths],
             "errors": errors, "findings": [finding.to_dict() for finding in findings],
         })
-        _write(output / "findings.sarif", sarif(findings, complete, errors))
+        _write(output / "findings.sarif", sarif(findings, complete, errors, root))
         if native is not None:
             _write(output / "native-observation.json", native)
         if complete:
