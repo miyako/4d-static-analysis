@@ -14,14 +14,17 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 from . import dependencies, tool4d
 from .model import native_findings
 
 
 VERIFIED_BUILDS = {"21.0 build 21.100301", "21.0 build 21.100422"}
-VERIFIED_PLATFORM = sys.platform == "darwin" and platform.machine() == "arm64"
+# Native completion is validated on these hosts (CI runs the native fixtures on both).
+VERIFIED_PLATFORMS = {("darwin", "arm64"), ("win32", "amd64")}
+VERIFIED_PLATFORM = (sys.platform, platform.machine().lower()) in VERIFIED_PLATFORMS
 
 class NativeError(Exception):
     pass
@@ -291,7 +294,7 @@ def probe(
                                             uri = urlsplit(document["uri"])
                                             if uri.scheme != "file" or uri.netloc not in {"", "localhost"}:
                                                 raise NativeError("Non-local syntax diagnostic URI")
-                                            path = Path(unquote(uri.path)).resolve()
+                                            path = Path(url2pathname(uri.path)).resolve()
                                             relative = path.relative_to(workspace.resolve()).as_posix()
                                             if document.get("kind") != "full":
                                                 raise NativeError("Non-full workspace syntax report")
@@ -313,7 +316,7 @@ def probe(
                                         elif version not in VERIFIED_BUILDS:
                                             result["reason"] = f"Native completion is not validated for build: {version}"
                                         elif not VERIFIED_PLATFORM:
-                                            result["reason"] = "Native completion is validated only on macOS ARM64"
+                                            result["reason"] = "Native completion is validated only on macOS ARM64 and Windows x64"
                                         else:
                                             result["complete"] = True
                                             result["reason"] = None
@@ -340,7 +343,7 @@ def probe(
                                     uri = urlsplit(params["uri"])
                                     if uri.scheme != "file" or uri.netloc not in {"", "localhost"}:
                                         raise NativeError("Non-local diagnostic URI")
-                                    path = Path(unquote(uri.path)).resolve()
+                                    path = Path(url2pathname(uri.path)).resolve()
                                     try:
                                         relative = path.relative_to(workspace.resolve()).as_posix()
                                     except ValueError as error:
@@ -361,7 +364,12 @@ def probe(
                                 if not initialized and child.poll() is not None:
                                     raise NativeError("tool4d exited during initialization")
                     finally:
-                        if child.poll() is None:
+                        stopped = child.poll() is None
+                        if stopped and os.name == "nt":
+                            # terminate() ends only the direct child; its children would keep the workspace open.
+                            subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)],
+                                           capture_output=True, timeout=30, check=False)
+                        if stopped and child.poll() is None:
                             child.terminate()
                             try:
                                 child.wait(timeout=3)
@@ -369,7 +377,9 @@ def probe(
                                 child.kill()
                                 child.wait(timeout=3)
                         result["processExitCode"] = child.returncode
-                        if child.returncode not in {0, -15, -9}:
+                        # Stopped by us: POSIX reports -15/-9; on Windows terminate() leaves exit code 1.
+                        if child.returncode != 0 and not (stopped and (child.returncode in {-15, -9}
+                                                                       or os.name == "nt")):
                             result["complete"] = False
                             result["reason"] = f"tool4d exited unexpectedly ({child.returncode})"
                         for name in ("stdout", "stderr"):

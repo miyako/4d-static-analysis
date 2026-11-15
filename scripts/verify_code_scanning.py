@@ -65,7 +65,9 @@ def verify(processing: dict, analyses: list, alerts: list, sarif_id: str, ref: s
 
 
 def verify_report(processing: dict, analyses: list, alerts: list, sarif_id: str,
-                  ref: str, sha: str, report: dict) -> dict:
+                  ref: str, sha: str, report: dict, instances=None) -> dict:
+    """`instances(alert)` lists an alert's instances. macOS and Windows upload identical findings, so GitHub
+    tracks one alert per finding with an instance per category; the most recent may be the other platform's."""
     if report.get("complete") is not True or report.get("errors") != []:
         raise ValueError("Only complete reports can verify a successful upload")
     findings = report["findings"]
@@ -73,12 +75,14 @@ def verify_report(processing: dict, analyses: list, alerts: list, sarif_id: str,
     expected = Counter((f["path"], f["start_line"], f["rule_id"], f["message"]) for f in findings)
     observed = Counter()
     found = []
+    wanted = {"analysis_key": analysis.get("analysis_key"), "category": analysis.get("category"),
+              "ref": ref, "commit_sha": sha}
     for alert in alerts:
-        instance = alert.get("most_recent_instance", {})
-        if any(instance.get(key) != value for key, value in {
-            "analysis_key": analysis.get("analysis_key"), "category": analysis.get("category"),
-            "ref": ref, "commit_sha": sha,
-        }.items()):
+        candidates = [alert.get("most_recent_instance", {})]
+        if instances is not None and any(candidates[0].get(k) != v for k, v in wanted.items()):
+            candidates = instances(alert)
+        instance = next((c for c in candidates if all(c.get(k) == v for k, v in wanted.items())), None)
+        if instance is None:
             continue
         location = instance.get("location", {})
         message = instance.get("message", {}).get("text")
@@ -142,7 +146,8 @@ def main() -> None:
                 (args.analysis_file.parent / "native-observation.json").read_text(encoding="utf-8")
             )
             verify_native_fixture(report, observation, args.native_fixture)
-        evidence = verify_report(processing, analyses, alerts, args.sarif_id, ref, sha, report)
+        instances = lambda alert: api(f"{base}/alerts/{alert['number']}/instances?{urlencode({'ref': ref, 'per_page': 100})}")
+        evidence = verify_report(processing, analyses, alerts, args.sarif_id, ref, sha, report, instances)
         links = [(alert["location"]["path"], alert["location"]["start_line"], alert["url"])
                  for alert in evidence["alerts"]]
     else:

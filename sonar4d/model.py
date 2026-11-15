@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 @dataclass(frozen=True, order=True)
@@ -28,7 +28,8 @@ class Finding:
             raise ValueError(f"Unknown level: {self.level}")
         if self.location_precision not in {"range", "line"}:
             raise ValueError("Location precision must be range or line")
-        if Path(self.path).is_absolute() or ".." in Path(self.path).parts or "\\" in self.path:
+        posix, windows = PurePosixPath(self.path), PureWindowsPath(self.path)
+        if posix.is_absolute() or windows.is_absolute() or windows.drive or ".." in posix.parts or "\\" in self.path:
             raise ValueError("Finding paths must be repository-relative POSIX paths")
         if not self.path or self.start_line < 1 or self.start_column < 0 or self.end_column < 0:
             raise ValueError("Invalid finding start")

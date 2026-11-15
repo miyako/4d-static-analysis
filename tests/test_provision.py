@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import io
+import json
 from pathlib import Path
 import subprocess
 import tarfile
@@ -140,6 +141,50 @@ class ProvisionTests(unittest.TestCase):
             with self.assertRaisesRegex(provision.ProvisionError, "macOS ARM64"):
                 provision.install(self.destination)
             run.assert_not_called()
+
+    def windows_install(self, signature):
+        archive = self.archive("tool4d/tool4d.exe")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+        def execute(command, **kwargs):
+            if command[0] == "powershell":
+                self.assertEqual(Path(kwargs["env"]["SONAR4D_TOOL"]).name, "tool4d.exe")
+                return SimpleNamespace(stdout=json.dumps(signature), stderr="")
+            return SimpleNamespace(stdout=provision.WINDOWS_RUNTIME_VERSION, stderr="")
+
+        with (
+            patch("sonar4d.provision.sys.platform", "win32"),
+            patch("sonar4d.provision.platform.machine", return_value="AMD64"),
+            patch.object(provision, "WINDOWS_ARCHIVE_SHA256", digest),
+            patch.object(provision.subprocess, "run", side_effect=execute) as run,
+        ):
+            return provision.install(self.destination, archive), run
+
+    def test_windows_x64_is_provisioned_and_authenticode_checked(self):
+        result, run = self.windows_install({"status": "Valid", "subject": "CN=4D SAS, O=4D SAS, C=FR"})
+        self.assertEqual((result["platform"], result["version"]), ("windows-x64", provision.WINDOWS_RUNTIME_VERSION))
+        self.assertTrue(result["toolPath"].endswith(str(Path("tool4d/tool4d.exe"))))
+        self.assertTrue((self.destination / "tool4d/tool4d.exe").is_file())
+        self.assertEqual([c.args[0][0] for c in run.call_args_list][0], "powershell")
+
+    def test_windows_rejects_an_invalid_or_foreign_signature(self):
+        for signature in ({"status": "NotSigned", "subject": ""}, {"status": "Valid", "subject": "CN=Someone Else"},
+                          {"status": "Valid", "subject": "CN=4Dx Tools"}):
+            with self.subTest(signature=signature):
+                with self.assertRaisesRegex(provision.ProvisionError, "Authenticode"):
+                    self.windows_install(signature)
+                self.assertFalse(self.destination.exists())
+
+    def test_windows_archive_must_be_rooted_at_tool4d(self):
+        archive = self.archive("tool4d.app/Contents/MacOS/tool4d")
+        with (
+            patch("sonar4d.provision.sys.platform", "win32"),
+            patch("sonar4d.provision.platform.machine", return_value="AMD64"),
+            patch.object(provision, "WINDOWS_ARCHIVE_SHA256", hashlib.sha256(archive.read_bytes()).hexdigest()),
+            patch.object(provision.subprocess, "run"),
+        ):
+            with self.assertRaisesRegex(provision.ProvisionError, "unexpected path"):
+                provision.install(self.destination, archive)
 
     def test_download_is_https_only_credential_free_and_bounded(self):
         archive = self.archive()

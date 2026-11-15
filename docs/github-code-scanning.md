@@ -31,7 +31,7 @@ Optional inputs:
 | `config` | JSON configuration path relative to the checked-out repository root |
 | `category` | Stable, unique analysis identity; defaults to `sonar-4d` |
 | `native-tool` | Optional tool4d executable already installed on the runner |
-| `download-tool4d` | `"true"` downloads/verifies the pinned public tool4d on macOS ARM64; defaults to `"false"` |
+| `download-tool4d` | `"true"` downloads/verifies the pinned public tool4d on macOS ARM64 or Windows x64; defaults to `"false"` |
 | `project` | Repository-relative `.4DProject`, required with either native mode |
 | `native-timeout` | Native observation deadline, default 15 seconds |
 | `leave-unopened` | Optional newline-separated repository-relative source paths for native coverage experiments |
@@ -114,10 +114,12 @@ native Mac verification is recorded below.
 ## Native checks in GitHub Actions
 
 Custom analysis works on GitHub's Ubuntu runners. Native syntax checking uses
-the verified macOS ARM64 runtime. **tool4d can be downloaded publicly without
+the verified macOS ARM64 or Windows x64 runtime. **tool4d can be downloaded publicly without
 login, secrets or license activation**; neither manual installation nor a
-self-hosted Mac is required. GitHub's explicit `macos-15` label supplies an
-Apple Silicon hosted runner; `macos-15-intel` is a different architecture.
+self-hosted machine is required. GitHub's explicit `macos-15` label supplies an
+Apple Silicon hosted runner (`macos-15-intel` is a different architecture), and
+`windows-latest` supplies Windows x64. CI runs the native fixtures on both, each
+with its own code-scanning category; give each platform its own `category` too.
 
 For a trusted project, use this native job instead of the Ubuntu-only example:
 
@@ -180,11 +182,14 @@ There is no retry, quarantine removal, re-signing or success-shaped fallback.
 The helper installs only into a fresh requested directory and records
 `provision.json`; the action uses `RUNNER_TEMP`, not global application folders.
 An optional `--archive FILE` accepts a cached archive under the same checks.
-The helper requires macOS ARM64, Python with safe tar data filters
-(the action supplies Python 3.12), `curl` and `codesign`.
+The helper requires macOS ARM64 or Windows x64, Python with safe tar data filters
+(the action supplies Python 3.12), and `curl`. On macOS it checks the code
+signature with `codesign`; on Windows it requires a valid Authenticode signature
+from 4D through PowerShell's `Get-AuthenticodeSignature`. Each platform's archive
+is pinned by SHA-256.
 
-Public Linux/Windows archives exist too; this implementation does not
-automatically install them because their native completion/location contract
+A public Linux archive exists too; this implementation does not
+automatically install it because its native completion/location contract
 has not been verified. This is a validation limit, not a login requirement.
 
 ### Hosted native fixture workflow

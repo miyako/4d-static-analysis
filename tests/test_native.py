@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import socket
 import subprocess
 import tempfile
@@ -68,6 +69,10 @@ class NativeContractTests(unittest.TestCase):
         self.tool = self.directory / "fake-tool4d"
         shutil.copyfile(Path(__file__).parent / "helpers/fake_tool4d.py", self.tool)
         self.tool.chmod(0o700)
+        if os.name == "nt":  # Windows cannot execute a #! script: run it through Python
+            wrapper = self.directory / "fake-tool4d.cmd"
+            wrapper.write_text(f'@"{sys.executable}" "{self.tool}" %*\r\n', encoding="utf-8")
+            self.tool = wrapper
 
     def call_probe(self, mode, version="21.0 contract-test"):
         with patch.dict(os.environ, {"SONAR4D_FAKE_MODE": mode, "SONAR4D_FAKE_VERSION": version}):

@@ -13,11 +13,11 @@ This is **not a complete compiler analyzer or a security product**.
 | Headless Python CLI | Working; Python 3.11+, no runtime dependencies |
 | Custom rule `4D-M001` | Configurable physical source-file length limit; maintainability only |
 | Common findings model | Repository-relative paths; one-based lines, zero-based UTF-16 columns |
-| SARIF 2.1.0 | Deterministic findings, GitHub-compatible relative URIs, explicit failed invocation on incomplete analysis |
+| SARIF 2.1.0 | Deterministic findings, GitHub-compatible relative URIs, `partialFingerprints` that survive code moving, explicit failed invocation on incomplete analysis; validated against the official OASIS schema in CI |
 | GitHub code scanning | Reusable action, opt-in public tool4d download, and live-verified custom/native hosted workflows |
 | Sonar generic JSON | Current rules/issues format; correct CODE_SMELL/MAINTAINABILITY and BUG/RELIABILITY mappings |
 | Native SonarQube Java plugin | Registers `fourd` / `.4dm`; built and unit/packaging tested, not server-deployment tested |
-| tool4d backend | Response-bound workspace syntax checking on verified tool4d 21.0 builds 21.100301 and 21.100422, macOS ARM64; GitHub release dependencies and in-repository local components installed into the analysis copy; other builds and unresolved dependencies fail closed |
+| tool4d backend | Response-bound workspace syntax checking on verified tool4d 21.0 builds 21.100301 and 21.100422, macOS ARM64 and Windows x64; GitHub release dependencies and in-repository local components installed into the analysis copy; other builds and unresolved dependencies fail closed |
 
 ## Run the working analyzer
 
@@ -95,14 +95,13 @@ at the output path requested for that run.
 The CLI accepts an explicitly supplied **tool4d executable**, not an `.app`
 folder. tool4d is publicly downloadable **without login or license activation**.
 The optional provisioner downloads and verifies **21.0 build 21.100422**;
-GitHub Actions can do this automatically on a hosted `macos-15` ARM64 runner.
-A self-hosted Mac and manual installation are not required.
+GitHub Actions can do this automatically on a hosted `macos-15` (ARM64) or
+`windows-latest` (x64) runner. Manual installation is not required.
 
 Native completion and location mapping are verified for **21.0 builds
-21.100301 and 21.100422 on macOS ARM64 only**. Other builds/platforms may be observed, but remain incomplete and
-their raw diagnostics are not promoted to common findings.
-Public Linux/Windows downloads also exist, but those native backends are not
-verified here. Declared GitHub dependencies are installed as described in
+21.100301 and 21.100422 on macOS ARM64, and 21.100422 on Windows x64**. Other builds/platforms may be
+observed, but remain incomplete and their raw diagnostics are not promoted to common findings.
+A public Linux download also exists, but that native backend is not verified here. Declared GitHub dependencies are installed as described in
 [Component dependencies](#component-dependencies).
 Repeated native launches exposed an intermittent **SIGSEGV in tool4d
 21.0 build 21.100301's own `--version` command** on this host. That is a real runtime failure,
@@ -111,7 +110,8 @@ No automatic retry hides it. The newer downloaded build passed the native
 fixtures; that does not establish that runtime instability is fixed.
 
 ```sh
-# From this checkout on macOS ARM64; destination must be new.
+# From this checkout on macOS ARM64 or Windows x64; destination must be new.
+# The executable path is printed as "toolPath" (on Windows: <destination>\tool4d\tool4d.exe).
 python3 -m sonar4d.provision --destination /tmp/sonar4d-tool-001
 # Executable: /tmp/sonar4d-tool-001/tool4d.app/Contents/MacOS/tool4d
 ```
@@ -237,7 +237,7 @@ jobs:
 
 Pin the action to a reviewed commit SHA for production. The default runs
 only the configurable maintainability rule; it does not install tool4d or
-perform security detection. For native checks use `runs-on: macos-15`,
+perform security detection. For native checks use `runs-on: macos-15` or `windows-latest`,
 `download-tool4d: "true"` and a repository-relative `project` input.
 See [GitHub setup, native download requirements,
 exit behavior and the live fixture check](docs/github-code-scanning.md).

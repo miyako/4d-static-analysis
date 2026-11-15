@@ -14,7 +14,7 @@ inputs:
     required: false
     default: ""
   download-tool4d:
-    description: Download and verify the pinned public runtime on macOS ARM64; no login or activation.
+    description: Download and verify the pinned public runtime on macOS ARM64 or Windows x64; no login or activation.
     required: false
     default: "false"
   project:
@@ -110,8 +110,9 @@ runs:
       working-directory: ${{ github.action_path }}
       run: |
         runtime_parent="$(mktemp -d "$RUNNER_TEMP/sonar4d-tool.XXXXXX")"
-        python -m sonar4d.provision --destination "$runtime_parent/runtime"
-        echo "tool-path=$runtime_parent/runtime/tool4d.app/Contents/MacOS/tool4d" >> "$GITHUB_OUTPUT"
+        python -m sonar4d.provision --destination "$runtime_parent/runtime" > "$runtime_parent/provenance.json"
+        tool_path="$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["toolPath"])' "$runtime_parent/provenance.json")"
+        echo "tool-path=$tool_path" >> "$GITHUB_OUTPUT"
     - name: Prepare the dependency cache
       id: dependency-cache-settings
       if: >-
