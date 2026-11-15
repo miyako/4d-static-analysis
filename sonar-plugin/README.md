@@ -72,7 +72,7 @@ With Maven 3.9.9 and a JDK supporting `--release 17`, from this directory:
 mvn -B -ntp clean verify
 ```
 
-Artifact: `target/sonar-fourd-plugin-0.1.0-SNAPSHOT.jar`.
+Artifact: `target/sonar-fourd-plugin-0.2.0.jar`.
 
 The unit tests cover language identity, default/configured/blank suffixes,
 language publication defaults, and the exact registration/property scope.
