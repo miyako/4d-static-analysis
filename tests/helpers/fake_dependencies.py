@@ -17,6 +17,7 @@ log = os.environ.get("SONAR4D_FAKE_DEPENDENCIES_LOG")
 if log:
     Path(log).write_text(json.dumps({
         "argv": arguments, "token": os.environ.get("DEPENDENCIES_GITHUB_TOKEN"),
+        "gitlabToken": os.environ.get("DEPENDENCIES_GITLAB_TOKEN"),
         "githubOutput": "GITHUB_OUTPUT" in os.environ,
         "lock": lock.read_text(encoding="utf-8") if lock.is_file() else None,
         "environment": str(environment) if environment else None,
