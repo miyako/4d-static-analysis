@@ -20,8 +20,8 @@ import tempfile
 import urllib.request
 
 
-SCRIPT_COMMIT = "8f12e0a0e088cacd8eedf755a8209a585972752c"
-SCRIPT_SHA256 = "b69050fea3f227d4301f89c4563c3ec553708fa014bbb77c62cf326d4c4e684f"
+SCRIPT_COMMIT = "f4aa7338a42fd239db4776e86b3061e309edc32e"
+SCRIPT_SHA256 = "0b9324bce98dabaa6c4ba63425fc2350f32468dd4313f4d61ba13eb04824e1c1"
 SCRIPT_URL = (
     f"https://raw.githubusercontent.com/miyako/4D/{SCRIPT_COMMIT}"
     "/.github/actions/dependencies/fetch_dependencies.py"
@@ -163,7 +163,7 @@ def install(package: Path, version: str, temporary: Path, *, offline: bool = Fal
     if offline:
         command.append("--offline")
     environment = {key: value for key, value in os.environ.items()
-                   if key not in {"GITHUB_OUTPUT", "DEPENDENCIES_GITHUB_TOKEN"}}
+                   if key not in {"GITHUB_OUTPUT", "DEPENDENCIES_GITHUB_TOKEN", "DEPENDENCIES_GITLAB_TOKEN"}}
     if token:
         environment["DEPENDENCIES_GITHUB_TOKEN"] = token
     completed = subprocess.run(command, env=environment, stdin=subprocess.DEVNULL, capture_output=True,

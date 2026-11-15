@@ -125,7 +125,8 @@ class NativeContractTests(unittest.TestCase):
                                               "SONAR4D_FAKE_DEPENDENCIES_EXIT": str(code),
                                               "SONAR4D_FAKE_DEPENDENCIES_LOG": str(log),
                                               "GITHUB_OUTPUT": str(self.directory / "github-output"),
-                                              "DEPENDENCIES_GITHUB_TOKEN": "ambient"})
+                                              "DEPENDENCIES_GITHUB_TOKEN": "ambient",
+                                              "DEPENDENCIES_GITLAB_TOKEN": "ambient"})
         environment.start()
         self.addCleanup(environment.stop)
         cache = patch("sonar4d.dependencies.cache_directory", return_value=self.directory / "sonar4d-cache")
@@ -156,6 +157,7 @@ class NativeContractTests(unittest.TestCase):
         invocation = json.loads(log.read_text())
         self.assertEqual(invocation["token"], "secret")
         self.assertFalse(invocation["githubOutput"])
+        self.assertIsNone(invocation["gitlabToken"])
         self.assertEqual(invocation["argv"][invocation["argv"].index("--runtime-version") + 1], "21.0")
         (package / "other").mkdir()
         dependencies.install(package / "other", "21.0 contract-test", self.directory, script=script)
