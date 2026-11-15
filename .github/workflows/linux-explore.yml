@@ -1,0 +1,66 @@
+# Temporary: explore Linux tool4d behaviour. Removed before the PR.
+name: Linux tool4d exploration
+on:
+  push:
+    branches: [linux-experimental]
+    paths: [.github/workflows/linux-explore.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        build:
+          - name: "21.0"
+            path: "21.x/21.0"
+          - name: "21 R5"
+            path: "21%20Rx/21%20R5"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libfreeimage3 libc++1-18 libc++abi1-18 libunwind-18
+      - name: Download tool4d ${{ matrix.build.name }}
+        run: |
+          url="https://resources-download.4d.com/release/${{ matrix.build.path }}/latest/linux/tool4d_linux.tar.xz"
+          curl -fsSL -o "$RUNNER_TEMP/tool4d.tar.xz" "$url"
+          sha256sum "$RUNNER_TEMP/tool4d.tar.xz"
+          mkdir -p "$RUNNER_TEMP/t" && tar -xJf "$RUNNER_TEMP/tool4d.tar.xz" -C "$RUNNER_TEMP/t"
+          echo "TOOL=$RUNNER_TEMP/t/bin/tool4d" >> "$GITHUB_ENV"
+      - name: Version and help
+        run: |
+          "$TOOL" --version || echo "version exit $?"
+          timeout 30 "$TOOL" --help 2>&1 | head -80 || echo "help exit $?"
+      - name: Language server probe
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from unittest import mock
+          import sonar4d.native as native
+          root = Path("tests/fixtures/native-clean").resolve()
+          project = root / "Project/Clean.4DProject"
+          sources = sorted(root.rglob("*.4dm"))
+          with mock.patch.object(native, "VERIFIED_BUILDS", {native.VERIFIED_BUILDS.pop() if False else "x"}):
+              result = native.probe(root, project, Path(os.environ["TOOL"]), sources, 60, experimental=True)
+          print(json.dumps({k: result.get(k) for k in ("version", "complete", "reason", "processExitCode", "events")}, indent=2))
+          print("--- stderr:", (result.get("stderrTail") or "")[-3000:])
+          print("--- stdout:", (result.get("stdoutTail") or "")[-3000:])
+          PY
+      - name: Run a startup method headlessly (no LSP)
+        run: |
+          mkdir -p "$RUNNER_TEMP/p/Project/Sources/Methods"
+          echo '{}' > "$RUNNER_TEMP/p/Project/P.4DProject"
+          printf '%s\n' 'var $f : 4D.File' '$f:=Folder(fk database folder; *).file("ran.txt")' '$f.setText(Application version(*))' 'QUIT 4D' > "$RUNNER_TEMP/p/Project/Sources/Methods/probe.4dm"
+          timeout 120 "$TOOL" --project="$RUNNER_TEMP/p/Project/P.4DProject" --startup-method=probe --dataless --skip-onstartup > "$RUNNER_TEMP/run.log" 2>&1; echo "exit $?"
+          tail -20 "$RUNNER_TEMP/run.log"
+          find "$RUNNER_TEMP/p" -name ran.txt -exec sh -c 'echo "ran.txt: $(cat "$1")"' _ {} \; | head -3
