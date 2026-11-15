@@ -83,7 +83,7 @@ class Schema(unittest.TestCase):
     def setUpClass(cls):
         if Draft4Validator is None:
             raise AssertionError("SONAR4D_REQUIRE_SCHEMA is set but jsonschema is not installed")
-        data = SCHEMA.read_bytes()
+        data = SCHEMA.read_bytes().replace(b"\r\n", b"\n")  # a checkout may still convert line endings
         assert hashlib.sha256(data).hexdigest() == SCHEMA_SHA256, "vendored SARIF schema changed"
         cls.validator = Draft4Validator(json.loads(data))
 

@@ -365,7 +365,11 @@ def probe(
                                     raise NativeError("tool4d exited during initialization")
                     finally:
                         stopped = child.poll() is None
-                        if stopped:
+                        if stopped and os.name == "nt":
+                            # terminate() ends only the direct child; its children would keep the workspace open.
+                            subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)],
+                                           capture_output=True, timeout=30, check=False)
+                        if stopped and child.poll() is None:
                             child.terminate()
                             try:
                                 child.wait(timeout=3)

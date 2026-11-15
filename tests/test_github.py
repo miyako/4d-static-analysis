@@ -161,6 +161,19 @@ class GitHubVerificationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.check_report(report=report)
 
+    def test_report_verifier_finds_this_categorys_instance_when_another_platform_uploaded_last(self):
+        # macOS and Windows upload identical findings: the alert's most recent instance can be the other's.
+        alerts = deepcopy(self.alerts)
+        ours = {a["number"]: deepcopy(a["most_recent_instance"]) for a in alerts}
+        for alert in alerts:
+            alert["most_recent_instance"]["category"] = "sonar-4d-native-errors-windows/"
+        with self.assertRaises(ValueError):
+            self.check_report(alerts=alerts)  # without the instance lookup
+        report = verify_report(
+            {"processing_status": "complete"}, [self.analysis], alerts, "upload-1", "refs/heads/example", "abc",
+            self.report, instances=lambda alert: [alert["most_recent_instance"], ours[alert["number"]]])
+        self.assertEqual(len(report["alerts"]), len(self.alerts))
+
     def test_empty_report_requires_zero_processed_results_and_no_current_alerts(self):
         report = {"complete": True, "errors": [], "findings": []}
         analysis = {**self.analysis, "results_count": 0}
