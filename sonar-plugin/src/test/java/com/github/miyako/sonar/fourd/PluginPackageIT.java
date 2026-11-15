@@ -18,7 +18,7 @@ class PluginPackageIT {
       assertEquals("fourd", attributes.getValue("Plugin-Key"));
       assertEquals("4D Community Plugin for SonarQube", attributes.getValue("Plugin-Name"));
       assertEquals("com.github.miyako.sonar.fourd.FourDPlugin", attributes.getValue("Plugin-Class"));
-      assertEquals("0.1.0-SNAPSHOT", attributes.getValue("Plugin-Version"));
+      assertEquals("0.2.0", attributes.getValue("Plugin-Version"));
       assertEquals("11.1.0.2693", attributes.getValue("Sonar-Version"));
       assertEquals("17", attributes.getValue("Jre-Min-Version"));
       assertNull(attributes.getValue("Plugin-RequiredForLanguages"));

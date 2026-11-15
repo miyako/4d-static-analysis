@@ -17,7 +17,7 @@ import time
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
-from . import dependencies, tool4d
+from . import __version__, dependencies, tool4d
 from .model import native_findings
 
 
@@ -180,7 +180,7 @@ def probe(
                             wire.send({"id": 1, "method": "initialize", "params": {
                                 "processId": os.getpid(), "rootUri": workspace.as_uri(),
                                 "rootPath": str(workspace),
-                                "clientInfo": {"name": "sonar-4d", "version": "0.1.0"},
+                                "clientInfo": {"name": "sonar-4d", "version": __version__},
                                 "capabilities": {
                                     "general": {"positionEncodings": ["utf-16"]},
                                     "textDocument": {"publishDiagnostics": {"relatedInformation": True}},
