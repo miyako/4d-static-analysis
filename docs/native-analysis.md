@@ -3,8 +3,8 @@
 ## Current supported contract
 
 The working native syntax backend accepts **tool4d 21.0 builds
-21.100301 and 21.100422 on macOS ARM64**. The public download provisioner pins
-`21.100422`; no login or activation is needed. See
+21.100301 and 21.100422 on macOS ARM64, and 21.100422 on Windows x64**. The public download
+provisioner pins `21.100422` for both; no login or activation is needed. See
 [public download verification and hosted Actions](github-code-scanning.md#public-download-verification).
 It uses the official custom `experimental/checkSyntax` workspace
 response, not standard `workspace/diagnostic` or an LSP quiet period.
