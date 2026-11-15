@@ -17,8 +17,6 @@ jobs:
         build:
           - name: "21.0"
             path: "21.x/21.0"
-          - name: "21 R5"
-            path: "21%20Rx/21%20R5"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -64,3 +62,10 @@ jobs:
           timeout 120 "$TOOL" --project="$RUNNER_TEMP/p/Project/P.4DProject" --startup-method=probe --dataless --skip-onstartup > "$RUNNER_TEMP/run.log" 2>&1; echo "exit $?"
           tail -20 "$RUNNER_TEMP/run.log"
           find "$RUNNER_TEMP/p" -name ran.txt -exec sh -c 'echo "ran.txt: $(cat "$1")"' _ {} \; | head -3
+      - name: Compile project headlessly (alternative to LSP)
+        run: |
+          cp -R tests/fixtures/native "$RUNNER_TEMP/compile"
+          printf '%s\n' 'var $result : Object' '$result:=Compile project' 'Folder(fk database folder; *).file("compile.json").setText(JSON Stringify($result; *))' 'QUIT 4D' > "$RUNNER_TEMP/compile/Project/Sources/Methods/explore_compile.4dm"
+          timeout 180 "$TOOL" --project="$RUNNER_TEMP/compile/Project/Probe.4DProject" --startup-method=explore_compile --dataless --skip-onstartup > "$RUNNER_TEMP/compile.log" 2>&1; echo "exit $?"
+          tail -10 "$RUNNER_TEMP/compile.log"
+          find "$RUNNER_TEMP/compile" -name compile.json -exec cat {} \; | head -120
