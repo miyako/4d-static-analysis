@@ -58,7 +58,7 @@ class GitHubVerificationTests(unittest.TestCase):
         }
         self.alerts = [
             {
-                "number": index, "html_url": f"https://github.com/miyako/sonar-4d/security/code-scanning/{index}",
+                "number": index, "html_url": f"https://github.com/miyako/4d-static-analysis/security/code-scanning/{index}",
                 "state": "open", "rule": {"id": "4D-M001"},
                 "most_recent_instance": {
                     "ref": "refs/heads/example", "commit_sha": "abc",

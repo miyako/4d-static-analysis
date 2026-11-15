@@ -102,11 +102,11 @@ to the job summary. The verifier is fixture-specific, not required in consumer
 workflows. Unit contracts also cover negative verification cases.
 
 The live upload was verified on 2026-11-11 in
-[fixture workflow run 43032734486](https://github.com/miyako/sonar-4d/actions/runs/43032734486).
+[fixture workflow run 43032734486](https://github.com/miyako/4d-static-analysis/actions/runs/43032734486).
 GitHub completed analysis `2144284763` for commit
 `a65320a1f1b85579d91bf4aa916f7cb9f9c15cfa`, with exactly two open alerts:
-[the ordinary path](https://github.com/miyako/sonar-4d/security/code-scanning/2)
-and [the space/Unicode/fragment-character path](https://github.com/miyako/sonar-4d/security/code-scanning/1),
+[the ordinary path](https://github.com/miyako/4d-static-analysis/security/code-scanning/2)
+and [the space/Unicode/fragment-character path](https://github.com/miyako/4d-static-analysis/security/code-scanning/1),
 both mapped to line 1. This is a feature-branch custom fixture verification,
 not a claim that the default branch contains vulnerabilities. The independent
 native Mac verification is recorded below.
@@ -135,7 +135,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: miyako/sonar-4d@main # Pin a reviewed commit SHA for production.
+      - uses: miyako/4d-static-analysis@main # Pin a reviewed commit SHA for production.
         with:
           download-tool4d: "true"
           project: Project/YourProject.4DProject
@@ -205,7 +205,7 @@ diagnostic, exit `2`, incomplete status and no Sonar report; it never uploads
 that partial SARIF. Evidence is retained as workflow artifacts.
 
 The complete hosted path was verified on 2026-11-11 in
-[native workflow run 43036548494](https://github.com/miyako/sonar-4d/actions/runs/43036548494),
+[native workflow run 43036548494](https://github.com/miyako/4d-static-analysis/actions/runs/43036548494),
 at commit `b21c128f5ae7807bc570fc52778ec0c16f9210b4`. All three jobs passed
 after downloading and verifying the pinned public runtime on `macos-15`:
 
@@ -216,11 +216,11 @@ after downloading and verifying the pinned public runtime on `macos-15`:
 | Missing dependency | Incomplete, real unknown-component finding at line 2, exit `2`, no Sonar report or upload | None by design |
 
 GitHub preserved the distinct messages sharing a physical source line:
-[Caller line 2](https://github.com/miyako/sonar-4d/security/code-scanning/3),
-[Opened line 3, missing expression](https://github.com/miyako/sonar-4d/security/code-scanning/4),
-[Opened line 3, unmatched If](https://github.com/miyako/sonar-4d/security/code-scanning/5),
-[Unopened line 2, missing expression](https://github.com/miyako/sonar-4d/security/code-scanning/6)
-and [Unopened line 2, unmatched If](https://github.com/miyako/sonar-4d/security/code-scanning/7).
+[Caller line 2](https://github.com/miyako/4d-static-analysis/security/code-scanning/3),
+[Opened line 3, missing expression](https://github.com/miyako/4d-static-analysis/security/code-scanning/4),
+[Opened line 3, unmatched If](https://github.com/miyako/4d-static-analysis/security/code-scanning/5),
+[Unopened line 2, missing expression](https://github.com/miyako/4d-static-analysis/security/code-scanning/6)
+and [Unopened line 2, unmatched If](https://github.com/miyako/4d-static-analysis/security/code-scanning/7).
 These are intentional reliability fixtures on the feature branch, not security
 vulnerabilities. The native evidence artifacts retain exact SARIF IDs,
 analysis IDs, commit/ref and source locations; the job also verifies that the

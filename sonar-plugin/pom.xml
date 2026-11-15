@@ -9,7 +9,7 @@
   <packaging>sonar-plugin</packaging>
   <name>4D Community Plugin for SonarQube</name>
   <description>4D language registration for SonarQube; external issues use the built-in generic report importer.</description>
-  <url>https://github.com/miyako/sonar-4d</url>
+  <url>https://github.com/miyako/4d-static-analysis</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
