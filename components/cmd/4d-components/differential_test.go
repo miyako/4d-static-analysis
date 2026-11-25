@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -49,6 +50,17 @@ func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req = clone
 	}
 	return http.DefaultTransport.RoundTrip(req)
+}
+
+// cacheRoot is the per-user cache folder inside the isolated home, as 4D lays it out per platform.
+func (s *side) cacheRoot() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(s.home, "Library", "Caches")
+	case "windows":
+		return filepath.Join(s.home, "AppData", "Local")
+	}
+	return filepath.Join(s.home, ".cache")
 }
 
 type side struct {
@@ -229,7 +241,7 @@ func (w *world) run(s *side, st step) outcome {
 	if data, err := os.ReadFile(lock); err == nil {
 		o.lock = string(data)
 	}
-	o.cache, o.store = tree(filepath.Join(s.home, ".cache")), tree(s.store)
+	o.cache, o.store = tree(s.home), tree(s.store)
 	o.calls = w.mock.Paths()
 	sort.Strings(o.calls)
 	return o

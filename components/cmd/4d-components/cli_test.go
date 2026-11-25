@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/miyako/4d-static-analysis/components/internal/fsx"
 	"github.com/miyako/4d-static-analysis/components/internal/ojson"
 	"github.com/miyako/4d-static-analysis/components/internal/testutil"
 )
@@ -287,7 +288,7 @@ func TestConcurrentInstallsShareACacheSafely(t *testing.T) {
 			t.Errorf("run %d exited %d", i, c)
 		}
 	}
-	entries, _ := os.ReadDir(filepath.Join(e.home, ".cache", "tool4d", "Dependencies", ".github", "o", "A"))
+	entries, _ := os.ReadDir(filepath.Join(fsx.UserCache(e.home), "tool4d", "Dependencies", ".github", "o", "A"))
 	for _, ent := range entries {
 		if strings.HasPrefix(ent.Name(), ".") {
 			t.Errorf("staging leftover %s", ent.Name())

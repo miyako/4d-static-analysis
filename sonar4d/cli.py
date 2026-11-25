@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 from . import __version__
-from .dependencies import TOKEN_ENV
+from .dependencies import MANAGERS, TOKEN_ENV
 from .model import native_findings
 from .native import NativeError, VERIFIED_BUILDS, VERIFIED_PLATFORM, probe
 from .reports import sarif, sonar_generic
@@ -33,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Do not install declared dependencies; a project that declares any is incomplete")
     parser.add_argument("--offline-dependencies", action="store_true",
                         help="Install dependencies from verified archives only, without network access")
+    parser.add_argument("--dependency-manager", choices=MANAGERS, default="python",
+                        help="Dependency manager implementation (default: the reviewed Python emulation; "
+                             "native is the opt-in 4d-components executable)")
+    parser.add_argument("--dependency-manager-path", type=Path,
+                        help="The native 4d-components executable (or set SONAR4D_COMPONENTS)")
     args = parser.parse_args(argv)
     output = args.output.resolve()
     try:
@@ -43,8 +48,11 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--native-tool and --project must be supplied together")
         if args.leave_unopened and not args.native_tool:
             raise ValueError("--leave-unopened requires --native-tool")
-        if (args.no_dependencies or args.offline_dependencies) and not args.native_tool:
+        if (args.no_dependencies or args.offline_dependencies or args.dependency_manager != "python"
+                or args.dependency_manager_path) and not args.native_tool:
             raise ValueError("Dependency options require --native-tool")
+        if args.dependency_manager_path and args.dependency_manager != "native":
+            raise ValueError("--dependency-manager-path requires --dependency-manager native")
         if args.no_dependencies and args.offline_dependencies:
             raise ValueError("Choose --no-dependencies or --offline-dependencies, not both")
         if output == root or root in output.parents:
@@ -72,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.native_timeout, scope=paths,
                 dependency_options=None if args.no_dependencies else {
                     "offline": args.offline_dependencies, "token": os.environ.get(TOKEN_ENV) or None,
+                    "manager": args.dependency_manager, "manager_path": args.dependency_manager_path,
                 },
             )
             if not native["complete"]:

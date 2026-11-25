@@ -79,7 +79,7 @@ func TestDifferentialBasics(t *testing.T) {
 		}, steps: []step{
 			{wantTags: map[string]string{"A": "1.0.0"}},
 			{args: []string{"--offline"}, wantTags: map[string]string{"A": "1.0.0"}, before: func(w *world, s *side) {
-				os.RemoveAll(filepath.Join(s.home, ".cache"))
+				os.RemoveAll(s.cacheRoot())
 			}},
 			{args: []string{"--offline"}, wantExit: 3, before: func(w *world, s *side) {
 				w.declare(`{"B": {"github": "o/B"}}`)
@@ -97,7 +97,7 @@ func TestDifferentialBasics(t *testing.T) {
 			{args: []string{"--offline"}, wantExit: 3, before: func(w *world, s *side) {
 				p := filepath.Join(s.store, "github", "o", "A", "1.0.0", "A.zip")
 				os.WriteFile(p, []byte("tampered"), 0o644)
-				os.RemoveAll(filepath.Join(s.home, ".cache"))
+				os.RemoveAll(s.cacheRoot())
 			}},
 		}},
 		{name: "shared cache mode reuses unverified and reports a damaged package", setup: func(w *world) {
@@ -107,7 +107,7 @@ func TestDifferentialBasics(t *testing.T) {
 			{noStore: true, wantTags: map[string]string{"A": "1.0.0"}},
 			{noStore: true, wantTags: map[string]string{"A": "1.0.0"}},
 			{noStore: true, wantExit: 3, before: func(w *world, s *side) {
-				os.Remove(filepath.Join(s.home, ".cache", "tool4d", "Dependencies", ".github", "o", "A", "1.0.0", "Project", "A.4DProject"))
+				os.Remove(filepath.Join(s.cacheRoot(), "tool4d", "Dependencies", ".github", "o", "A", "1.0.0", "Project", "A.4DProject"))
 			}},
 		}},
 		{name: "missing repository and release give an incomplete lock entry", setup: func(w *world) {

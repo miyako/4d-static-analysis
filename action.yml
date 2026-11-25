@@ -35,6 +35,14 @@ inputs:
       analysis copy; "offline" reuses verified archives only; "none" leaves declared dependencies incomplete.
     required: false
     default: install
+  dependency-manager:
+    description: >-
+      Native mode only. "python" (default) uses the reviewed Python emulation of the 4D dependency manager.
+      "native" builds the independent 4d-components executable from this action's own reviewed source (with
+      the Go version in components/go.mod) and uses it instead; both write the same report and lock
+      formats. Opt in; the Python manager remains the default until native parity is accepted.
+    required: false
+    default: python
   cache-dependencies:
     description: >-
       Native mode, GitHub-hosted runners only: keep the verified dependency archives and the project's last
@@ -72,7 +80,12 @@ runs:
         LEAVE_UNOPENED: ${{ inputs.leave-unopened }}
         DEPENDENCIES: ${{ inputs.dependencies }}
         CACHE_DEPENDENCIES: ${{ inputs.cache-dependencies }}
+        DEPENDENCY_MANAGER: ${{ inputs.dependency-manager }}
       run: |
+        case "$DEPENDENCY_MANAGER" in
+          python|native) ;;
+          *) echo "::error::dependency-manager must be python or native"; exit 2 ;;
+        esac
         case "$CACHE_DEPENDENCIES" in
           true|false) ;;
           *) echo "::error::cache-dependencies must be true or false"; exit 2 ;;
@@ -103,6 +116,29 @@ runs:
       uses: actions/setup-python@v6
       with:
         python-version: "3.12"
+    - name: Set up Go for the native dependency manager
+      if: inputs.dependency-manager == 'native' && inputs.project != ''
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: ${{ github.action_path }}/components/go.mod
+        cache: false
+    - name: Build the native dependency manager
+      id: components
+      if: inputs.dependency-manager == 'native' && inputs.project != ''
+      shell: bash
+      working-directory: ${{ github.action_path }}/components
+      env:
+        CGO_ENABLED: "0"
+        GOTOOLCHAIN: local
+        GOFLAGS: -mod=readonly
+      run: |
+        # Built from the reviewed source of this action revision: stdlib only, so nothing is downloaded.
+        out="$(mktemp -d "$RUNNER_TEMP/4d-components.XXXXXX")"
+        exe="$out/4d-components"
+        if [[ "$RUNNER_OS" == Windows ]]; then exe="$exe.exe"; fi
+        go build -trimpath -o "$exe" ./cmd/4d-components
+        "$exe" version
+        echo "path=$exe" >> "$GITHUB_OUTPUT"
     - name: Provision public tool4d
       id: provision
       if: inputs.download-tool4d == 'true'
@@ -159,6 +195,8 @@ runs:
         SONAR4D_NATIVE_TIMEOUT: ${{ inputs.native-timeout }}
         SONAR4D_LEAVE_UNOPENED: ${{ inputs.leave-unopened }}
         SONAR4D_DEPENDENCIES: ${{ inputs.dependencies }}
+        SONAR4D_DEPENDENCY_MANAGER: ${{ inputs.dependency-manager }}
+        SONAR4D_COMPONENTS: ${{ steps.components.outputs.path }}
         SONAR4D_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         report_parent="$(mktemp -d "$RUNNER_TEMP/sonar4d.XXXXXX")"
@@ -176,6 +214,9 @@ runs:
             offline) args+=(--offline-dependencies) ;;
             none) args+=(--no-dependencies) ;;
           esac
+          if [[ "$SONAR4D_DEPENDENCY_MANAGER" == native ]]; then
+            args+=(--dependency-manager native --dependency-manager-path "$SONAR4D_COMPONENTS")
+          fi
         fi
         args+=(--native-timeout "$SONAR4D_NATIVE_TIMEOUT")
         while IFS= read -r source; do
