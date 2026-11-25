@@ -53,15 +53,19 @@ jobs:
           if [[ "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::Release from main only"; exit 1; fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z"; exit 1; fi
           if [[ "$PUBLISH" != true && "$PUBLISH" != false ]]; then echo "::error::publish must be true or false"; exit 1; fi
-          for file in pyproject.toml sonar4d/__init__.py sonar-plugin/pom.xml; do
-            grep -q "\"\?$VERSION\"\?" "$file" || { echo "::error::$file is not at $VERSION"; exit 1; }
-          done
-          test -f "docs/release-notes/v$VERSION.md" || { echo "::error::docs/release-notes/v$VERSION.md is missing"; exit 1; }
-          if grep -qi "not signed\|unsigned" "docs/release-notes/v$VERSION.md"; then
-            echo "::error::The release notes say the binaries are unsigned; releases must be signed"; exit 1
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag v$VERSION already exists"; exit 1
+          # A dry run (publish=false) only builds, signs and notarizes: it creates no tag and no release, so the version
+          # files, the release notes and the tag are checked only when publishing.
+          if [[ "$PUBLISH" == true ]]; then
+            for file in pyproject.toml sonar4d/__init__.py sonar-plugin/pom.xml; do
+              grep -q "\"\?$VERSION\"\?" "$file" || { echo "::error::$file is not at $VERSION"; exit 1; }
+            done
+            test -f "docs/release-notes/v$VERSION.md" || { echo "::error::docs/release-notes/v$VERSION.md is missing"; exit 1; }
+            if grep -qi "not signed\|unsigned" "docs/release-notes/v$VERSION.md"; then
+              echo "::error::The release notes say the binaries are unsigned; releases must be signed"; exit 1
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+              echo "::error::Tag v$VERSION already exists"; exit 1
+            fi
           fi
           missing=0
           for name in APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
