@@ -25,7 +25,8 @@ func (s *Source) hostName() string {
 		h = provider.GitLabCom
 	}
 	if u, err := url.Parse(h); err == nil && u.Hostname() != "" {
-		return strings.ToLower(u.Hostname())
+		// host and port: two instances on one host must not share a cache folder
+		return strings.ToLower(strings.ReplaceAll(u.Host, ":", "_"))
 	}
 	return "gitlab.com"
 }

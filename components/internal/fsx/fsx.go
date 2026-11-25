@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miyako/4d-static-analysis/components/internal/ojson"
@@ -85,23 +86,40 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 
 // FileLock serialises processes that share a cache. The lock is an exclusively created file; one older than
 // `stale` is taken over. The returned function releases it.
+var uniqueCounter atomic.Uint64
+
+// Unique returns a name fragment that is unique across processes and goroutines.
+func Unique() string {
+	return fmt.Sprintf("%d-%d-%d", os.Getpid(), time.Now().UnixNano(), uniqueCounter.Add(1))
+}
+
 func FileLock(path string, timeout, stale time.Duration) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
+	token := Unique()
 	deadline := time.Now().Add(timeout)
 	for {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
-			fmt.Fprintf(f, "%d", os.Getpid())
+			fmt.Fprint(f, token)
 			f.Close()
-			return func() { os.Remove(path) }, nil
+			return func() {
+				// remove the lock only if it is still ours
+				if data, err := os.ReadFile(path); err == nil && string(data) == token {
+					os.Remove(path)
+				}
+			}, nil
 		}
 		if !os.IsExist(err) {
 			return nil, err
 		}
 		if st, serr := os.Stat(path); serr == nil && time.Since(st.ModTime()) > stale {
-			os.Remove(path)
+			// Take a stale lock over atomically: of several waiters only one wins the rename.
+			grave := path + ".stale." + Unique()
+			if os.Rename(path, grave) == nil {
+				os.Remove(grave)
+			}
 			continue
 		}
 		if time.Now().After(deadline) {
@@ -268,25 +286,31 @@ func MoveTree(source, target string) error {
 // InstallTree atomically moves source to target. It reports false when target already existed and was kept
 // (another process won); with replace, an existing target is swapped out first.
 func InstallTree(source, target string, replace bool) (bool, error) {
-	stage := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%d.partial", filepath.Base(target), os.Getpid()))
-	os.RemoveAll(stage)
+	id := Unique()
+	stage := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%s.partial", filepath.Base(target), id))
 	if err := MoveTree(source, stage); err != nil {
 		return false, err
 	}
+	trash := ""
 	if _, err := os.Stat(target); err == nil && replace {
-		trash := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%d.old", filepath.Base(target), os.Getpid()))
+		trash = filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%s.old", filepath.Base(target), id))
 		if err := os.Rename(target, trash); err != nil {
 			os.RemoveAll(stage)
 			return false, err
 		}
-		os.RemoveAll(trash)
 	}
 	if err := os.Rename(stage, target); err != nil {
 		os.RemoveAll(stage)
+		if trash != "" {
+			_ = os.Rename(trash, target) // never lose the previous package
+		}
 		if st, serr := os.Stat(target); serr == nil && st.IsDir() {
 			return false, nil
 		}
 		return false, err
+	}
+	if trash != "" {
+		os.RemoveAll(trash)
 	}
 	return true, nil
 }

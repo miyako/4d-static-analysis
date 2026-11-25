@@ -63,7 +63,7 @@ func localSource(entry *ojson.OMap, pkg, workspace string) (string, string) {
 // copyStaged copies src to target through a staging folder, so a failed copy never leaves a package that could
 // be mistaken for a complete installation.
 func copyStaged(src, target string) error {
-	stage := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%d.partial", filepath.Base(target), os.Getpid()))
+	stage := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.%s.partial", filepath.Base(target), fsx.Unique()))
 	os.RemoveAll(stage)
 	if err := fsx.CopyTree(src, stage); err != nil {
 		os.RemoveAll(stage)

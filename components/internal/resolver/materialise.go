@@ -58,8 +58,15 @@ func asset(rel *provider.Release, src *Source) (*provider.Asset, error) {
 // SHA-256 of what was downloaded.
 func checkDigest(data []byte, a *provider.Asset) (string, error) {
 	actual := fsx.SHA256Bytes(data)
-	if strings.HasPrefix(a.Digest, "sha256:") && strings.ToLower(a.Digest[7:]) != actual {
-		return "", failf("%s: sha256 does not match the release asset digest", a.Name)
+	if a.Digest != "" {
+		algo, want, _ := strings.Cut(a.Digest, ":")
+		if !strings.EqualFold(algo, "sha256") {
+			// An integrity claim that cannot be checked is not silently ignored.
+			return "", failf("%s: unsupported release asset digest algorithm %s", a.Name, ojson.Repr(algo))
+		}
+		if strings.ToLower(want) != actual {
+			return "", failf("%s: sha256 does not match the release asset digest", a.Name)
+		}
 	}
 	if a.Size != nil && *a.Size != int64(len(data)) {
 		return "", failf("%s: size does not match the release asset", a.Name)
@@ -138,10 +145,12 @@ func (m *Manager) materialise(e *ojson.OMap, src *Source, tag string, rel *provi
 	var meta *ojson.OMap
 	var err error
 	if m.store != "" {
-		archive, meta, source, err = m.archived(src, tag, rel)
+		var unlock func()
+		archive, meta, source, unlock, err = m.archived(src, tag, rel)
 		if err != nil {
 			return err
 		}
+		defer unlock() // held until the verified archive has been extracted
 	}
 	tmp, err := os.MkdirTemp(repoFolder, ".fetch-")
 	if err != nil {
@@ -190,6 +199,11 @@ func (m *Manager) materialise(e *ojson.OMap, src *Source, tag string, rel *provi
 		return err
 	}
 	installed, err := fsx.InstallTree(root, target, m.store != "")
+	if err == nil && !installed && fsx.PackageForm(target) == "" {
+		// Another folder with this tag is in the way and is not a package: 4D would not load or repair it.
+		release()
+		return failf("cached %s@%s is not a loadable package and 4D does not repair it; delete %s to re-fetch", src.Repo, tag, target)
+	}
 	if err == nil && (installed || !isFile(metaPath)) {
 		keys := []string{"github", "tag", "htmlURL", "archiveURL", "archiveSize", "dependencies"}
 		if src.gitlab() {
@@ -257,15 +271,20 @@ func (m *Manager) plan(e *ojson.OMap, src *Source, tag string, rel *provider.Rel
 // archived returns the archive from the verified store, downloading on a miss. A stored archive is re-hashed on
 // every use and checked against the current release digest (online) or the digest recorded when it was stored
 // (offline). Stored metadata is never trusted on its own: it must match the bytes.
-func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (string, *ojson.OMap, string, error) {
+func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (string, *ojson.OMap, string, func(), error) {
 	client := src.Client
 	folder := filepath.Join(src.storeFolder(m.store), tag)
 	metaPath := filepath.Join(folder, "meta.json")
-	release, err := fsx.FileLock(filepath.Join(src.storeFolder(m.store), "."+tag+".lock"), lockTimeout, lockStale)
+	unlock, err := fsx.FileLock(filepath.Join(src.storeFolder(m.store), "."+tag+".lock"), lockTimeout, lockStale)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
-	defer release()
+	ok := false
+	defer func() {
+		if !ok {
+			unlock()
+		}
+	}()
 	stored := readJSONObject(metaPath)
 	var current *provider.Asset
 	var lookupErr error
@@ -278,10 +297,10 @@ func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (stri
 		}
 		var auth *provider.AuthFailure
 		if errors.As(lookupErr, &auth) {
-			return "", nil, "", lookupErr // a rejected token is not an outage: no fallback, as 4D does not retry
+			return "", nil, "", nil, lookupErr // a rejected token is not an outage: no fallback, as 4D does not retry
 		}
 		if lookupErr != nil && !isFailure(lookupErr) {
-			return "", nil, "", lookupErr
+			return "", nil, "", nil, lookupErr
 		}
 	}
 	if stored != nil && ojson.Truthy(stored.Val("asset")) {
@@ -296,16 +315,17 @@ func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (stri
 			expected := ""
 			if current != nil && current.Digest != "" {
 				expected = current.Digest
-			} else if d, ok := stored.Val("digest").(string); ok {
+			} else if d, isStr := stored.Val("digest").(string); isStr {
 				expected = d
 			}
 			if isFile(archive) {
 				actual, err := fsx.SHA256File(archive)
-				if err == nil && ojson.Equal(stored.Val("sha256"), actual) && (expected == "" || expected == "sha256:"+actual) {
+				if err == nil && ojson.Equal(stored.Val("sha256"), actual) && (expected == "" || strings.EqualFold(expected, "sha256:"+actual)) {
 					if lookupErr != nil {
 						m.warn("%s@%s: release lookup failed (%s); using the archive verified against its recorded digest", src.Repo, tag, lookupErr)
 					}
-					return archive, stored, "archive", nil
+					ok = true
+					return archive, stored, "archive", unlock, nil
 				}
 				m.warn("%s@%s: stored archive failed verification; discarded", src.Repo, tag)
 			}
@@ -313,23 +333,23 @@ func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (stri
 	}
 	if current == nil {
 		if lookupErr != nil {
-			return "", nil, "", lookupErr
+			return "", nil, "", nil, lookupErr
 		}
-		return "", nil, "", failf("%s@%s: offline and no verified archive is stored", src.Repo, tag)
+		return "", nil, "", nil, failf("%s@%s: offline and no verified archive is stored", src.Repo, tag)
 	}
 	data, err := client.Download(current)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
 	meta := m.newMeta(rel, current, src, len(data))
 	sum, err := checkDigest(data, current)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
 	meta.Set("sha256", sum)
 	deps, err := client.ChildDependencies(src.Repo, tag)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
 	if deps == nil {
 		meta.Set("dependencies", nil)
@@ -342,16 +362,17 @@ func (m *Manager) archived(src *Source, tag string, rel *provider.Release) (stri
 		file = "archive.zip"
 	}
 	if !safeSegment(file) {
-		return "", nil, "", failf("unsafe asset name %s", ojson.Repr(file))
+		return "", nil, "", nil, failf("unsafe asset name %s", ojson.Repr(file))
 	}
 	meta.Set("file", file)
 	if err := fsx.WriteFileAtomic(filepath.Join(folder, file), data, 0o600); err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
 	if err := fsx.WriteJSON(metaPath, meta, "\t"); err != nil {
-		return "", nil, "", err
+		return "", nil, "", nil, err
 	}
-	return filepath.Join(folder, file), meta, "download", nil
+	ok = true
+	return filepath.Join(folder, file), meta, "download", unlock, nil
 }
 
 var _ = fmt.Sprintf

@@ -56,6 +56,9 @@ func (m *Manager) resolveGitLab(e, spec *ojson.OMap, pins map[string]*ojson.OMap
 		}
 		host = s
 	}
+	if host != "" && !safeSegment(hostFolderName(host)) {
+		return m.fail(e, fmt.Sprintf("invalid gitlab host %s: expected https://<host>", ojson.Repr(host)))
+	}
 	if reason := m.gitlabSupport(); reason != "" {
 		return m.fail(e, reason)
 	}
@@ -92,4 +95,9 @@ func (m *Manager) resolveGitLab(e, spec *ojson.OMap, pins map[string]*ojson.OMap
 		return m.fail(e, err.Error())
 	}
 	return m.finish(e, name)
+}
+
+func hostFolderName(host string) string {
+	s := &Source{Provider: "gitlab", Host: host}
+	return s.hostName()
 }

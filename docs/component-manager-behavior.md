@@ -145,8 +145,8 @@ A dependency is incomplete (exit 3, never a clean analysis) when: its repository
 the asset is absent or fails its digest/size check; the archive is unsafe, corrupt or not a package; a cached
 package is damaged; a token is rejected; a rate limit exceeds the retry bound; offline resolution needs the
 network; a declaration is not an object or a repository/host is invalid; a manifest of the component is
-unreadable; a version conflict disables a declaring component; a local component is missing, outside the
-workspace or unreadable; `"4d"` has no runtime version; GitLab is used on a runtime that does not load it (21.x LTS
+unreadable; a version conflict disables a declaring component; a local component is outside the workspace, unreadable, or (once installed into a workspace) missing — the resolver alone only warns, as 4D
+writes `found: false`; `"4d"` has no runtime version; GitLab is used on a runtime that does not load it (21.x LTS
 and unobserved lines are incomplete; 22+ only warns). The analyzer additionally keeps its own fail-closed contract:
 incomplete dependencies or incomplete native diagnostics exit 2 and never produce a Sonar report.
 
@@ -168,6 +168,17 @@ Documented, tested and **not** normalised away by the differential comparison un
 | JSON syntax error wording; program name in messages | Python's | Go's | normalised in the comparison, wording only |
 | `--action` (`FD_*`) composite-action mode | yes | no | the analyzer invokes the CLI directly; use the miyako/4D action for it |
 | `--github-api-url` | — | yes (https, or http on loopback) | tests, GitHub Enterprise |
+| Shared-cache tag folder that exists without `<tag>.json` and is not a package | reported complete | incomplete | review finding: fail-open |
+| Release digest with an algorithm other than sha256 | ignored | incomplete (unverifiable claim) | fail closed |
+| Digest hex case on reuse | exact match | case-insensitive | a valid upper-case digest no longer forces re-download |
+| Token over `http://` (other than loopback) | sent | never sent; https only | no cleartext credential, including after a redirect downgrade |
+| GitLab `host` | name only (instances on different ports share a folder; `..` accepted) | host and port key the folder; unsafe names rejected | cache collision / escape |
+| More than 1000 releases | silently truncated | incomplete | a wrong tag must not look complete |
+| 2xx other than 200 | accepted | failure | partial bodies |
+| Network error text | includes redirect URL | cause only | pre-signed URLs stay out of reports |
+| Store archive vs. extraction | lock released before extraction | lock held until extraction ends | narrows the hash/extract race (a writer of the store is still out of scope) |
+| File locks | delete-on-release, racy stale takeover | owner token, atomic takeover | no deleting another owner's lock |
+| Replacing a tag folder | delete old, then move | move old aside, restore on failure; unique staging names | never lose the previous package |
 
 ## Unknown or unestablished (do not claim parity)
 

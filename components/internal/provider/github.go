@@ -151,6 +151,9 @@ func (g *GitHub) Releases(repo string) ([]*Release, error) {
 		if len(list) < 100 {
 			break
 		}
+		if page == 10 {
+			return nil, &version.Failure{Msg: "more than 1000 releases: the release list would be incomplete"}
+		}
 	}
 	return out, nil
 }

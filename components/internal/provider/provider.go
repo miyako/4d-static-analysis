@@ -135,7 +135,8 @@ func (h *HTTP) headers(u, accept string) http.Header {
 		h.Extra(hd)
 	}
 	if h.Token != "" {
-		if parsed, err := url.Parse(u); err == nil && strings.EqualFold(parsed.Host, h.TokenHost) && h.TokenHeader != nil {
+		if parsed, err := url.Parse(u); err == nil && strings.EqualFold(parsed.Host, h.TokenHost) && h.TokenHeader != nil &&
+			(parsed.Scheme == "https" || (parsed.Scheme == "http" && loopbackHost(parsed.Hostname()))) {
 			k, v := h.TokenHeader(h.Token)
 			hd.Set(k, v)
 		}
@@ -155,6 +156,8 @@ func retryAfter(v string, now time.Time) float64 {
 	}
 	return 0
 }
+
+func loopbackHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "::1" }
 
 // Request fetches a URL with bounded retries. 404 yields ErrNotFound.
 func (h *HTTP) Request(rawURL, accept string) ([]byte, error) {
@@ -201,7 +204,13 @@ func (h *HTTP) Request(rawURL, accept string) ([]byte, error) {
 			break
 		}
 		if netErr != nil {
-			last = netErr.Error()
+			// The error text of a redirect can carry a pre-signed URL: keep only the cause.
+			var ue *url.Error
+			if errors.As(netErr, &ue) {
+				last = ue.Err.Error()
+			} else {
+				last = netErr.Error()
+			}
 			delay = math.Min(math.Pow(2, float64(attempt))+h.Jitter(), 20)
 		} else {
 			status = resp.StatusCode
@@ -222,13 +231,10 @@ func (h *HTTP) Request(rawURL, accept string) ([]byte, error) {
 				}
 				return data, nil
 			}
-			if status/100 == 2 {
-				// Other 2xx are not expected from these APIs; treat as success with the body.
-				data, _ := io.ReadAll(io.LimitReader(resp.Body, h.MaxBytes+1))
-				resp.Body.Close()
-				return data, nil
-			}
 			resp.Body.Close()
+			if status/100 == 2 {
+				return nil, failf("unexpected HTTP %d for %s", status, rawURL)
+			}
 			last = fmt.Sprintf("HTTP %d", status)
 			switch {
 			case (status == 403 || status == 429) && resp.Header.Get("X-RateLimit-Remaining") == "0":

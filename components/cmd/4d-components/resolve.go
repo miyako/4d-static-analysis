@@ -34,7 +34,7 @@ func installationReport(res *installer.Result) *ojson.OMap {
 		Set("reuse", reuse).Set("problems", list(res.Problems))
 }
 
-func githubOutput(report *ojson.OMap, reportFile string) error {
+func githubOutput(report *ojson.OMap, reportFile string, installProblems bool) error {
 	path := os.Getenv("GITHUB_OUTPUT")
 	if path == "" {
 		return nil
@@ -48,7 +48,7 @@ func githubOutput(report *ojson.OMap, reportFile string) error {
 	j := func(v any) string { b, _ := ojson.Marshal(v, ""); return string(b) }
 	incomplete := report.Val("incomplete")
 	complete := "true"
-	if l, ok := incomplete.([]any); ok && len(l) > 0 {
+	if l, ok := incomplete.([]any); (ok && len(l) > 0) || installProblems {
 		complete = "false"
 	}
 	values := [][2]string{{"dependencies-folder", str(report.Val("dependenciesFolder"))}, {"home", str(report.Val("home"))},
@@ -110,7 +110,7 @@ func runResolve(args []string, stdout, stderr writer, planOnly bool) int {
 	if err := emit(stdout, f.output, report); err != nil {
 		return errorExit(stderr, err)
 	}
-	if err := githubOutput(report, f.output); err != nil {
+	if err := githubOutput(report, f.output, installation != nil && len(installation.Problems) > 0); err != nil {
 		fmt.Fprintf(stderr, "4d-components: cannot write GITHUB_OUTPUT: %v\n", err)
 		return exitInternal
 	}
