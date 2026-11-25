@@ -1,0 +1,119 @@
+name: Release
+
+# Builds the native 4d-components executables for every supported platform and creates the GitHub release
+# `v<version>` with the notes in docs/release-notes/v<version>.md. Manual, from main only; the version must match the
+# one in pyproject.toml, and the tag must not exist yet.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v (for example 0.3.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - id: check
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::Release from main only"; exit 1; fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z"; exit 1; fi
+          for file in pyproject.toml sonar4d/__init__.py sonar-plugin/pom.xml; do
+            grep -q "\"\?$VERSION\"\?" "$file" || { echo "::error::$file is not at $VERSION"; exit 1; }
+          done
+          test -f "docs/release-notes/v$VERSION.md" || { echo "::error::docs/release-notes/v$VERSION.md is missing"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Tests
+        working-directory: components
+        run: go vet ./... && go test -race -count=1 ./...
+
+  build:
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {os: ubuntu-latest, goos: linux, goarch: amd64, native: true}
+          - {os: ubuntu-24.04-arm, goos: linux, goarch: arm64, native: true}
+          - {os: macos-latest, goos: darwin, goarch: arm64, native: true}
+          - {os: macos-15-intel, goos: darwin, goarch: amd64, native: true}
+          - {os: windows-latest, goos: windows, goarch: amd64, native: true}
+          - {os: ubuntu-latest, goos: windows, goarch: arm64, native: false}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - name: Build and package
+        shell: bash
+        working-directory: components
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          mkdir -p dist
+          exe="4d-components"
+          if [[ "$GOOS" == windows ]]; then exe="4d-components.exe"; fi
+          go build -trimpath -ldflags "-s -w -X main.buildVersion=$VERSION" -o "dist/$exe" ./cmd/4d-components
+          if [[ "${{ matrix.native }}" == true ]]; then "dist/$exe" version; fi
+          name="4d-components-$VERSION-$GOOS-$GOARCH"
+          cd dist
+          if [[ "$GOOS" == windows ]]; then
+            python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED); z.write(sys.argv[2]); z.close()" "$name.zip" "$exe" 2>/dev/null \
+              || powershell -NoProfile -Command "Compress-Archive -Path '$exe' -DestinationPath '$name.zip'"
+          else
+            tar -czf "$name.tar.gz" "$exe"
+          fi
+          rm "$exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: components/dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums and release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+          cd ..
+          gh release create "v$VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file "docs/release-notes/v$VERSION.md"
