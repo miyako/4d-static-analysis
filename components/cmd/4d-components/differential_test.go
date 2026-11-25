@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/miyako/4d-static-analysis/components/internal/fsx"
 	"github.com/miyako/4d-static-analysis/components/internal/ojson"
 	"github.com/miyako/4d-static-analysis/components/internal/testutil"
 )
@@ -25,6 +26,15 @@ import (
 // unmodified) and this implementation against the same mock provider with the same inputs, and compare exit
 // codes, reports, lock files, the cache and archive-store trees and the provider requests. Only paths are
 // normalised; real version, graph, conflict, completeness and credential differences are never normalised away.
+
+func pythonExecutable() string {
+	for _, name := range []string{"python3", "python"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	return "python3"
+}
 
 func referenceScript(t *testing.T) string {
 	t.Helper()
@@ -194,7 +204,7 @@ func (w *world) run(s *side, st step) outcome {
 		envs[k] = v
 	}
 	if s.python {
-		cmd := exec.Command("python3", append([]string{"-I", filepath.Join("..", "..", "testdata", "ref_runner.py")}, args...)...)
+		cmd := exec.Command(pythonExecutable(), append([]string{"-I", filepath.Join("..", "..", "testdata", "ref_runner.py")}, args...)...)
 		cmd.Env = append(os.Environ(), "REF_SCRIPT="+w.ref, "MOCK_URL="+w.mock.URL)
 		for k, v := range envs {
 			cmd.Env = append(cmd.Env, k+"="+v)
@@ -269,8 +279,20 @@ func firstDiff(a, b string) string {
 	return ""
 }
 
+// rootForms are the spellings of a side's root folder in the output: the plain path, the same path JSON-escaped
+// (Windows backslashes) and, on macOS, the HFS form 4D writes in the lock file.
+func rootForms(root string) []string {
+	forms := []string{root, strings.ReplaceAll(root, `\`, `\\`), strings.ReplaceAll(root, `\`, "/")}
+	if runtime.GOOS == "darwin" {
+		forms = append([]string{strings.TrimSuffix(fsx.NativePath(root), ":")}, forms...)
+	}
+	return forms
+}
+
 func (w *world) normalise(s *side, text string) string {
-	text = strings.ReplaceAll(text, s.root, "<ROOT>")
+	for _, form := range rootForms(s.root) {
+		text = strings.ReplaceAll(text, form, "<ROOT>")
+	}
 	text = tokenRe.ReplaceAllString(text, "<MOCK>")
 	text = jsonErrRe.ReplaceAllString(text, "${1}<json error>")
 	text = strings.ReplaceAll(text, "fetch_dependencies:", "<tool>:")
