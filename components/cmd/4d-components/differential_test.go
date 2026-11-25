@@ -159,6 +159,10 @@ func tree(root string) map[string]string {
 			return nil
 		}
 		data, _ := os.ReadFile(p)
+		if strings.HasSuffix(p, ".json") {
+			// Python writes text files with CRLF on Windows; the JSON content is what is compared.
+			data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		}
 		h := sha256.Sum256(data)
 		rel, _ := filepath.Rel(root, p)
 		out[filepath.ToSlash(rel)] = hex.EncodeToString(h[:8])
@@ -290,6 +294,7 @@ func rootForms(root string) []string {
 }
 
 func (w *world) normalise(s *side, text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	for _, form := range rootForms(s.root) {
 		text = strings.ReplaceAll(text, form, "<ROOT>")
 	}
