@@ -340,7 +340,15 @@ cache cannot change what is installed; it only avoids repeated downloads and let
 `dependencies: offline` work on hosted runners. Set `cache-dependencies: "false"`
 to turn it off.
 
-### Native dependency manager (opt-in)
+### Standalone dependency manager `4d-components` (opt-in)
+
+> **A note on the word "native".** Three different things carry that word here. *Native analysis* (the
+> `--native-tool` mode, "native mode" in the action) is the analysis done by tool4d. In
+> `--dependency-manager native` and `dependency-manager: native`, "native" means a **compiled, standalone
+> executable** (`4d-components`, written in Go), as opposed to the Python script. It is **not** a dependency
+> manager built into tool4d: tool4d has none, which is why a dependency manager is needed on GitHub-hosted runners
+> at all. And 4D's own Dependency manager is a feature of the 4D application, which hosted runners cannot run.
+> The option value `native` is kept for compatibility with v0.3.0.
 
 The Go executable [`4d-components`](components/README.md) is an independent implementation of the same
 manager: no Python, no tool4d, no Actions. It writes the same report and lock formats and shares the archive

@@ -10,6 +10,11 @@ behavior follows real 4D. **Behavior first, architecture second:** the exact rul
 every intentional difference are in [`docs/component-manager-behavior.md`](../docs/component-manager-behavior.md);
 the language decision is in [`docs/adr/0001-native-component-manager-language.md`](../docs/adr/0001-native-component-manager-language.md).
 
+> **Naming.** In this repository `dependency-manager: native` means "the compiled standalone executable", as
+> opposed to the Python script. It is not a dependency manager built into tool4d (tool4d has none) and not 4D's own
+> Dependency manager (part of the 4D application, which GitHub-hosted runners cannot run). The value `native` is kept
+> for compatibility; the executable is called `4d-components`.
+>
 > **Status.** Opt-in. The analyzer's default manager is still the Python emulation. Use the native one with
 > `--dependency-manager native` (action input `dependency-manager: native`). Python stays the fallback until
 > parity is accepted on every platform you rely on — see the unestablished list in the behavior document.

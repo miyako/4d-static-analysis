@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Install dependencies from verified archives only, without network access")
     parser.add_argument("--dependency-manager", choices=MANAGERS, default="python",
                         help="Dependency manager implementation (default: the reviewed Python emulation; "
-                             "native is the opt-in 4d-components executable)")
+                             "native is the opt-in compiled 4d-components executable, not a tool4d feature)")
     parser.add_argument("--dependency-manager-path", type=Path,
                         help="The native 4d-components executable (or set SONAR4D_COMPONENTS)")
     args = parser.parse_args(argv)

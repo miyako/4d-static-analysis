@@ -38,7 +38,8 @@ inputs:
   dependency-manager:
     description: >-
       Native mode only. "python" (default) uses the reviewed Python emulation of the 4D dependency manager.
-      "native" builds the independent 4d-components executable from this action's own reviewed source (with
+      "native" means a compiled standalone executable (not a feature of tool4d, which has no dependency manager of its
+      own): it builds the independent 4d-components executable from this action's own reviewed source (with
       the Go version in components/go.mod) and uses it instead; both write the same report and lock
       formats. Opt in; the Python manager remains the default until native parity is accepted.
     required: false

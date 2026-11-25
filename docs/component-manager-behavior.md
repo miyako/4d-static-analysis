@@ -5,6 +5,11 @@ This document specifies what the dependency managers in this repository do, so t
 the reviewed pin used by `sonar4d.dependencies`) and the native `4d-components` executable
 ([`components/`](../components/README.md)) are one specification, not two interpretations.
 
+**Terminology.** *Python reference* is the pinned `fetch_dependencies.py`. *Native* is the compiled standalone
+executable `4d-components` (the `dependency-manager: native` option and the "Native" column below), **not** a
+dependency manager inside tool4d, which has none, and not 4D's own Dependency manager, which is part of the 4D
+application. "Native analysis" elsewhere in this repository means analysis by tool4d, which is unrelated.
+
 It does **not** invent 4D behavior. Every rule is one of:
 
 | Class | Meaning |
