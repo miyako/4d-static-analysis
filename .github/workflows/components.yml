@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
     defaults:
       run:
         working-directory: components
@@ -37,10 +37,11 @@ jobs:
           go-version-file: components/go.mod
           cache: false
       - run: go vet ./...
+      # The race detector's binaries abort on the macOS runners ("missing LC_UUID load command"), so it runs on Linux.
       - run: go test -race -count=1 ./...
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
       - run: go test -count=1 ./...
-        if: runner.os == 'Windows'
+        if: runner.os != 'Linux'
 
   differential:
     name: Differential parity with the Python reference (${{ matrix.os }})
@@ -90,7 +91,7 @@ jobs:
           - {os: ubuntu-latest, goos: linux, goarch: amd64, native: true}
           - {os: ubuntu-24.04-arm, goos: linux, goarch: arm64, native: true}
           - {os: macos-latest, goos: darwin, goarch: arm64, native: true}
-          - {os: macos-13, goos: darwin, goarch: amd64, native: true}
+          - {os: macos-15-intel, goos: darwin, goarch: amd64, native: true}
           - {os: windows-latest, goos: windows, goarch: amd64, native: true}
           # No hosted Windows arm64 runner is assumed: this one is cross-compiled and its runtime is NOT verified.
           - {os: ubuntu-latest, goos: windows, goarch: arm64, native: false}
