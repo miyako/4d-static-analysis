@@ -1,44 +1,75 @@
 name: Release
 
-# Builds the native 4d-components executables for every supported platform and creates the GitHub release
-# `v<version>` with the notes in docs/release-notes/v<version>.md. Manual, from main only; the version must match the
-# one in pyproject.toml, and the tag must not exist yet.
+# Builds the standalone 4d-components executables, signs them and creates the GitHub release `v<version>` with the
+# notes in docs/release-notes/v<version>.md. Manual, from main only.
+#
+# Signing is MANDATORY. The workflow fails before building if a required secret is missing, and no release is created
+# unless every artifact is signed:
+#   * macOS: Developer ID Application signature with the hardened runtime and a secure timestamp, notarized by Apple
+#     (notarytool must report "Accepted").
+#   * Windows: Authenticode signature with an RFC 3161 timestamp (verified with signtool).
+#   * Every archive and SHA256SUMS: Sigstore (cosign keyless) bundle, plus a GitHub build-provenance attestation.
+# Required secrets and the `release` environment are documented in docs/releasing.md.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version without the leading v (for example 0.3.0)
+        description: Release version without the leading v (for example 0.4.0)
         required: true
+      publish:
+        description: '"true" creates the release; "false" builds, signs and notarizes only (to test the pipeline)'
+        required: false
+        default: "true"
 
 permissions:
   contents: read
 
+env:
+  VERSION: ${{ inputs.version }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.check.outputs.version }}
+    environment: release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: components/go.mod
           cache: false
-      - id: check
+      - name: Check the version, the tag and the signing secrets
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           if [[ "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::Release from main only"; exit 1; fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z"; exit 1; fi
+          if [[ "$PUBLISH" != true && "$PUBLISH" != false ]]; then echo "::error::publish must be true or false"; exit 1; fi
           for file in pyproject.toml sonar4d/__init__.py sonar-plugin/pom.xml; do
             grep -q "\"\?$VERSION\"\?" "$file" || { echo "::error::$file is not at $VERSION"; exit 1; }
           done
           test -f "docs/release-notes/v$VERSION.md" || { echo "::error::docs/release-notes/v$VERSION.md is missing"; exit 1; }
+          if grep -qi "not signed\|unsigned" "docs/release-notes/v$VERSION.md"; then
+            echo "::error::The release notes say the binaries are unsigned; releases must be signed"; exit 1
+          fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
             echo "::error::Tag v$VERSION already exists"; exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          missing=0
+          for name in APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID \
+                      WINDOWS_CERTIFICATE_PFX_BASE64 WINDOWS_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!name}" ]]; then echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1; fi
+          done
+          exit $missing
       - name: Tests
         working-directory: components
         run: go vet ./... && go test -race -count=1 ./...
@@ -55,6 +86,7 @@ jobs:
           - {os: macos-latest, goos: darwin, goarch: arm64, native: true}
           - {os: macos-15-intel, goos: darwin, goarch: amd64, native: true}
           - {os: windows-latest, goos: windows, goarch: amd64, native: true}
+          # Cross-compiled: no hosted Windows arm64 runner is assumed. It is signed like the others, but never run.
           - {os: ubuntu-latest, goos: windows, goarch: arm64, native: false}
     steps:
       - uses: actions/checkout@v4
@@ -62,58 +94,179 @@ jobs:
         with:
           go-version-file: components/go.mod
           cache: false
-      - name: Build and package
+      - name: Build
         shell: bash
         working-directory: components
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          mkdir -p dist
           exe="4d-components"
           if [[ "$GOOS" == windows ]]; then exe="4d-components.exe"; fi
-          go build -trimpath -ldflags "-s -w -X main.buildVersion=$VERSION" -o "dist/$exe" ./cmd/4d-components
-          if [[ "${{ matrix.native }}" == true ]]; then "dist/$exe" version; fi
-          name="4d-components-$VERSION-$GOOS-$GOARCH"
-          cd dist
-          if [[ "$GOOS" == windows ]]; then
-            python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED); z.write(sys.argv[2]); z.close()" "$name.zip" "$exe" 2>/dev/null \
-              || powershell -NoProfile -Command "Compress-Archive -Path '$exe' -DestinationPath '$name.zip'"
-          else
-            tar -czf "$name.tar.gz" "$exe"
-          fi
-          rm "$exe"
+          mkdir -p "out/$GOOS-$GOARCH"
+          go build -trimpath -ldflags "-s -w -X main.buildVersion=$VERSION" -o "out/$GOOS-$GOARCH/$exe" ./cmd/4d-components
+          if [[ "${{ matrix.native }}" == true ]]; then "out/$GOOS-$GOARCH/$exe" version; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: components/dist/*
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: components/out
+          if-no-files-found: error
+
+  sign-macos:
+    needs: build
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-darwin-*
+          path: in
+      - name: Sign with Developer ID and notarize
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          echo "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          for dir in in/bin-darwin-*; do
+            arch="${dir##*-}"
+            bin="$dir/darwin-$arch/4d-components"
+            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+            codesign --verify --strict --verbose=2 "$bin"
+            # an ad-hoc or self-signed identity is not acceptable
+            codesign -dv --verbose=4 "$bin" 2>&1 | grep -q "Authority=Developer ID Application" \
+              || { echo "::error::$bin is not signed with a Developer ID Application certificate"; exit 1; }
+            ditto -c -k --keepParent "$bin" "$RUNNER_TEMP/notarize-$arch.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/notarize-$arch.zip" --key "$RUNNER_TEMP/notary-key.p8" \
+              --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --output-format json \
+              > "$RUNNER_TEMP/notarize-$arch.json" || true
+            cat "$RUNNER_TEMP/notarize-$arch.json"
+            python3 - "$RUNNER_TEMP/notarize-$arch.json" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1]))
+          if result.get("status") != "Accepted":
+              sys.exit(f"::error::notarization was not accepted: {result.get('status')}")
+          PY
+            "$bin" version
+          done
+      - name: Remove the keychain and keys
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary-key.p8"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-darwin
+          path: in/*/*/*
+          if-no-files-found: error
+
+  sign-windows:
+    needs: build
+    runs-on: windows-latest
+    environment: release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-windows-*
+          path: in
+      - name: Sign with Authenticode and verify
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          signtool="$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name signtool.exe -path '*x64*' | sort | tail -n1)"
+          test -n "$signtool" || { echo "::error::signtool.exe not found"; exit 1; }
+          pfx="$RUNNER_TEMP/certificate.pfx"
+          echo "$WINDOWS_CERTIFICATE_PFX_BASE64" | base64 --decode > "$pfx"
+          trap 'rm -f "$pfx"' EXIT
+          for exe in in/bin-windows-*/windows-*/4d-components.exe; do
+            "$signtool" sign //f "$(cygpath -w "$pfx")" //p "$WINDOWS_CERTIFICATE_PASSWORD" \
+              //fd sha256 //tr http://timestamp.digicert.com //td sha256 "$(cygpath -w "$exe")"
+            "$signtool" verify //pa //v "$(cygpath -w "$exe")"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows
+          path: in/*/*/*
           if-no-files-found: error
 
   publish:
-    needs: [check, build]
+    needs: [check, build, sign-macos, sign-windows]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: dist-*
-          merge-multiple: true
-          path: dist
-      - name: Checksums and release
+          path: artifacts
+      - name: Package (signed binaries only for macOS and Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist stage
+          # Linux binaries come straight from the build; macOS and Windows only from the signing jobs.
+          for dir in artifacts/bin-linux-*; do cp -R "$dir"/* stage/; done
+          for dir in artifacts/signed-darwin artifacts/signed-windows; do
+            for sub in "$dir"/*; do cp -R "$sub"/* stage/ 2>/dev/null || cp -R "$sub" stage/; done
+          done
+          ls -R stage
+          for platform in stage/*; do
+            name="4d-components-$VERSION-$(basename "$platform")"
+            if [[ "$platform" == *windows* ]]; then
+              (cd "$platform" && zip -q "../../dist/$name.zip" 4d-components.exe)
+            else
+              chmod +x "$platform/4d-components"
+              tar -czf "dist/$name.tar.gz" -C "$platform" 4d-components
+            fi
+          done
+          test "$(ls dist | wc -l)" -eq 6
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the archives and the checksums with Sigstore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          for file in *; do cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"; done
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/4d-components-*
+      - name: Create the release
+        if: inputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          cd dist
-          sha256sum * > SHA256SUMS
-          cat SHA256SUMS
-          cd ..
           gh release create "v$VERSION" dist/* \
             --target "$GITHUB_SHA" \
             --title "v$VERSION" \
             --notes-file "docs/release-notes/v$VERSION.md"
+      - name: Keep the signed artifacts of a dry run
+        if: inputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-dist
+          path: dist/*
+          if-no-files-found: error
