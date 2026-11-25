@@ -1,0 +1,129 @@
+name: Native component manager
+
+on:
+  push:
+    paths:
+      - "components/**"
+      - ".github/workflows/components.yml"
+  pull_request:
+    paths:
+      - "components/**"
+      - ".github/workflows/components.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The reviewed Python reference implementation (miyako/4D) the native manager is compared with.
+  REFERENCE_COMMIT: f4aa7338a42fd239db4776e86b3061e309edc32e
+  REFERENCE_SHA256: 0b9324bce98dabaa6c4ba63425fc2350f32468dd4313f4d61ba13eb04824e1c1
+
+jobs:
+  test:
+    name: Unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+    defaults:
+      run:
+        working-directory: components
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - run: go vet ./...
+      # The race detector's binaries abort on the macOS runners ("missing LC_UUID load command"), so it runs on Linux.
+      - run: go test -race -count=1 ./...
+        if: runner.os == 'Linux'
+      - run: go test -count=1 ./...
+        if: runner.os != 'Linux'
+
+  differential:
+    name: Differential parity with the Python reference (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Linux only: the differential harness normalises POSIX paths. macOS writes HFS paths in the lock file and
+    # Windows uses drive paths, so the Python/native comparison is not claimed for those platforms yet.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch the pinned reference implementation
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/miyako/4D/${REFERENCE_COMMIT}/.github/actions/dependencies/fetch_dependencies.py" \
+            --output "$RUNNER_TEMP/fetch_dependencies.py"
+          python - <<'PY'
+          import hashlib, os, sys
+          data = open(os.path.join(os.environ["RUNNER_TEMP"], "fetch_dependencies.py"), "rb").read()
+          if hashlib.sha256(data).hexdigest() != os.environ["REFERENCE_SHA256"]:
+              sys.exit("the reference script does not match the reviewed pin")
+          PY
+          echo "REF_SCRIPT=$RUNNER_TEMP/fetch_dependencies.py" >> "$GITHUB_ENV"
+      - name: Differential tests
+        working-directory: components
+        run: go test -count=1 -run 'TestDifferential' -v ./cmd/4d-components
+      - name: Analyzer integration tests with the native manager
+        run: python -m unittest tests.test_native_manager -v
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, goos: linux, goarch: amd64, native: true}
+          - {os: ubuntu-24.04-arm, goos: linux, goarch: arm64, native: true}
+          - {os: macos-latest, goos: darwin, goarch: arm64, native: true}
+          - {os: macos-15-intel, goos: darwin, goarch: amd64, native: true}
+          - {os: windows-latest, goos: windows, goarch: amd64, native: true}
+          # No hosted Windows arm64 runner is assumed: this one is cross-compiled and its runtime is NOT verified.
+          - {os: ubuntu-latest, goos: windows, goarch: arm64, native: false}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - name: Build
+        shell: bash
+        working-directory: components
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          name="4d-components-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [[ "$GOOS" == windows ]]; then name="$name.exe"; fi
+          go build -trimpath -ldflags "-s -w -X main.buildVersion=${GITHUB_SHA::12}" -o "dist/$name" ./cmd/4d-components
+          (cd dist && if command -v sha256sum >/dev/null; then sha256sum "$name"; else shasum -a 256 "$name"; fi > "$name.sha256")
+      - name: Run the built executable (native runners only)
+        if: matrix.native
+        shell: bash
+        working-directory: components/dist
+        run: |
+          exe="$(ls | grep -v '\.sha256$' | head -n1)"
+          ./"$exe" version
+          ./"$exe" help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 4d-components-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: components/dist/*
+          if-no-files-found: error

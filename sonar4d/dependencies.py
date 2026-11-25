@@ -2,7 +2,8 @@
 
 Resolution, download and verification are done by the 4D dependency manager emulation in miyako/4D
 (`.github/actions/dependencies/fetch_dependencies.py`), fetched at a pinned commit and checked against a
-recorded SHA-256. tool4d's LSP mode does not load components from the dependency cache, so each resolved
+recorded SHA-256. Alternatively (opt in, `manager="native"`) by the independent native `4d-components`
+executable built from this repository's `components/` folder, which writes the same report and lock formats. tool4d's LSP mode does not load components from the dependency cache, so each resolved
 package is copied into the copy's `Components/` folder. Existing `Components/` entries keep precedence.
 """
 
@@ -27,6 +28,8 @@ SCRIPT_URL = (
     "/.github/actions/dependencies/fetch_dependencies.py"
 )
 TOKEN_ENV = "SONAR4D_GITHUB_TOKEN"
+MANAGERS = ("python", "native")
+NATIVE_MANAGER_ENV = "SONAR4D_COMPONENTS"
 LOCK_USER = "sonar4d"
 MAX_SCRIPT_BYTES = 1024 * 1024
 TIMEOUT = 600
@@ -113,6 +116,22 @@ def script_path() -> Path:
     return path
 
 
+def native_manager(path: str | os.PathLike | None = None) -> Path:
+    """Return the native `4d-components` executable the caller provisioned.
+
+    It is never downloaded here: the GitHub Action builds it from the reviewed source of this repository, and a
+    local user passes its path (or sets SONAR4D_COMPONENTS). An unprovisioned manager is an error, never a
+    silent fall back to the Python implementation."""
+    candidate = path or os.environ.get(NATIVE_MANAGER_ENV)
+    if not candidate:
+        raise DependencyError("The native dependency manager is not provisioned: build components/cmd/4d-components "
+                              f"and pass --dependency-manager-path (or set {NATIVE_MANAGER_ENV})")
+    executable = Path(candidate).resolve()
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise DependencyError(f"The native dependency manager {str(candidate)!r} is not an executable file")
+    return executable
+
+
 def runtime_version(version: str) -> str:
     match = re.match(r"(\d+(?:R\d+)?(?:\.\d+)?)", version)
     if not match:
@@ -140,7 +159,8 @@ def _local_source(entry: dict, package: Path, workspace: Path | None) -> tuple[P
 
 def install(package: Path, version: str, temporary: Path, *, offline: bool = False,
             token: str | None = None, script: Path | None = None,
-            lock_key: str | None = None, workspace: Path | None = None) -> tuple[dict, str | None]:
+            lock_key: str | None = None, workspace: Path | None = None,
+            manager: str = "python", manager_path: str | os.PathLike | None = None) -> tuple[dict, str | None]:
     """Resolve and install dependencies for the workspace copy `package`.
 
     Local (`path`) components are installed only when they resolve inside `workspace`, the analysis copy of
@@ -150,14 +170,20 @@ def install(package: Path, version: str, temporary: Path, *, offline: bool = Fal
     Like 4D, offline runs resolve version anchors from a lock file; sonar-4d keeps the last lock written
     for `lock_key` (the analyzed project) in its cache, because each analysis uses a fresh copy.
     """
-    script = script or script_path()
+    if manager not in MANAGERS:
+        raise DependencyError(f"Unknown dependency manager {manager!r}; use one of {', '.join(MANAGERS)}")
+    # Both managers write the same report and lock formats, so everything below is shared.
+    if manager == "native":
+        executable = [str(native_manager(manager_path)), "install"]
+    else:
+        executable = [sys.executable, str(script or script_path())]
     output = temporary / "dependencies-report.json"
     lock = package / f"userPreferences.{LOCK_USER}" / "dependencies-lock.json"
     saved = cache_directory() / "locks" / f"{_sha256(lock_key.encode())[:32]}.json" if lock_key else None
     if saved and saved.is_file() and not lock.exists():
         lock.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(saved, lock)
-    command = [sys.executable, str(script), "--project", str(package), "--runtime", "tool4d",
+    command = [*executable, "--project", str(package), "--runtime", "tool4d",
                "--runtime-version", runtime_version(version), "--home", str(temporary / "home"),
                "--user", LOCK_USER, "--output", str(output)]
     if offline:
@@ -179,7 +205,7 @@ def install(package: Path, version: str, temporary: Path, *, offline: bool = Fal
         os.replace(staging, saved)
     summary = {
         "resolved": report.get("resolved", {}), "token": bool(token), "offline": offline,
-        "archiveStore": report.get("archiveStore"), "warnings": report.get("warnings", []),
+        "manager": manager, "archiveStore": report.get("archiveStore"), "warnings": report.get("warnings", []),
         "incomplete": report.get("incomplete", []), "installed": [], "providedByComponents": [],
         "reuse": {},
     }
