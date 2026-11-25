@@ -18,7 +18,7 @@ the language decision is in [`docs/adr/0001-native-component-manager-language.md
 
 ```sh
 cd components
-go build -trimpath -o 4d-components ./cmd/4d-components     # Go 1.22+, no network needed
+go build -trimpath -o 4d-components ./cmd/4d-components     # Go 1.24+, no network needed
 go test -race ./...                                          # unit tests, mock HTTP server, no live provider
 ```
 
