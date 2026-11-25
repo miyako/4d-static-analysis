@@ -354,8 +354,8 @@ sonar-4d <root> --output <dir> --native-tool <tool4d> --project <.4DProject> \
 In the action, set `dependency-manager: native`; the action builds the executable from its own reviewed source
 (Go version from `components/go.mod`). The default stays `python` until the native manager's parity is accepted for
 the platforms you use. The exact rules, the evidence behind them, the intentional differences and what is **not**
-established (notably: the Python/native differential comparison runs on Linux only, and no real tool4d LSP run
-with the native manager has been done on macOS or Windows from this repository) are in
+established (notably: real tool4d LSP runs with the native manager cover one fixture with one GitHub component, and
+GitLab is only covered by the mock-provider differential tests) are in
 [`docs/component-manager-behavior.md`](docs/component-manager-behavior.md). An unprovisioned native manager is an
 error, never a silent fall back to Python, and incomplete dependency resolution still makes the analysis incomplete (exit `2`).
 
