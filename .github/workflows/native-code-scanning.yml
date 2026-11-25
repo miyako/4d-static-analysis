@@ -6,6 +6,7 @@ on:
     paths:
       - action.yml
       - sonar4d/**
+      - components/**
       - scripts/verify_code_scanning.py
       - tests/fixtures/**
       - tests/test_provision.py
@@ -239,4 +240,98 @@ jobs:
         with:
           name: native-github-dependencies-evidence-${{ matrix.os }}
           path: ${{ runner.temp }}/dependencies-*/native-observation.json
+          if-no-files-found: error
+
+  native-dependency-manager:
+    # Real tool4d LSP analysis with the opt-in native 4d-components manager (M8 of #12): online, then offline from
+    # the verified archive store, then the same with the Python manager. The Components/ layout the LSP sees must be
+    # identical, and every run must be complete: a startup-only COMPONENT LIST would not prove that.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: components/go.mod
+          cache: false
+      - name: Build the native dependency manager
+        working-directory: components
+        env:
+          CGO_ENABLED: "0"
+          GOTOOLCHAIN: local
+        run: |
+          exe="$RUNNER_TEMP/4d-components"
+          if [[ "$RUNNER_OS" == Windows ]]; then exe="$exe.exe"; fi
+          go build -trimpath -o "$exe" ./cmd/4d-components
+          "$exe" version
+          echo "COMPONENTS=$exe" >> "$GITHUB_ENV"
+      - name: Provision public tool4d
+        run: |
+          python -m sonar4d.provision --destination "$RUNNER_TEMP/tool4d-runtime" > "$RUNNER_TEMP/provenance.json"
+          python -c 'import json, sys; print("TOOL4D=" + json.load(open(sys.argv[1]))["toolPath"])' "$RUNNER_TEMP/provenance.json" >> "$GITHUB_ENV"
+      - name: Analyze with each manager, online then offline
+        env:
+          GITHUB_TOKEN_FOR_DEPENDENCIES: ${{ github.token }}
+        run: |
+          for manager in native python; do
+            for mode in online offline; do
+              flags=(--dependency-manager "$manager")
+              if [[ "$manager" == native ]]; then flags+=(--dependency-manager-path "$COMPONENTS"); fi
+              if [[ "$mode" == offline ]]; then
+                flags+=(--offline-dependencies)
+                unset SONAR4D_GITHUB_TOKEN
+              else
+                export SONAR4D_GITHUB_TOKEN="$GITHUB_TOKEN_FOR_DEPENDENCIES"
+              fi
+              python -m sonar4d.ci . "${flags[@]}" \
+                --config .github/sonar4d-native-dependencies.json \
+                --native-tool "$TOOL4D" \
+                --project tests/fixtures/github-dependencies/Project/GitHubDependencies.4DProject \
+                --native-timeout 60 \
+                --output "$RUNNER_TEMP/deps-$manager-$mode"
+              MANAGER="$manager" MODE="$mode" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / f"deps-{os.environ['MANAGER']}-{os.environ['MODE']}"
+          report = json.loads((root / "analysis.json").read_text())
+          assert report["complete"] is True, report["errors"]
+          assert not [f for f in report["findings"] if f["rule_id"].startswith("4D-N")], report["findings"]
+          summary = json.loads((root / "native-observation.json").read_text())["dependencies"]
+          assert summary["manager"] == os.environ["MANAGER"], summary
+          assert summary["installed"] == ["4D SVG"], summary
+          assert not summary["incomplete"], summary
+          if os.environ["MODE"] == "offline":
+              assert summary["reuse"] == {"4D SVG": "verified archive"}, summary
+          print(os.environ["MANAGER"], os.environ["MODE"], json.dumps(summary))
+          PY
+            done
+          done
+          # both managers resolved the same tags
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          temp = Path(os.environ["RUNNER_TEMP"])
+          tags = {m: json.loads((temp / f"deps-{m}-online/native-observation.json").read_text())["dependencies"]["resolved"]
+                  for m in ("native", "python")}
+          assert tags["native"] == tags["python"], tags
+          print("resolved tags are identical:", tags["native"])
+          PY
+          test ! -e tests/fixtures/github-dependencies/Project/Components
+          git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-manager-evidence-${{ matrix.os }}
+          path: ${{ runner.temp }}/deps-*/native-observation.json
           if-no-files-found: error
