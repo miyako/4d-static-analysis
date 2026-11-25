@@ -46,12 +46,10 @@ jobs:
   differential:
     name: Differential parity with the Python reference (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Linux only: the differential harness normalises POSIX paths. macOS writes HFS paths in the lock file and
-    # Windows uses drive paths, so the Python/native comparison is not claimed for those platforms yet.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

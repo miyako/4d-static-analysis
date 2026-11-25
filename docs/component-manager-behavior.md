@@ -186,9 +186,10 @@ Documented, tested and **not** normalised away by the differential comparison un
   self-hosted `host`; of upcoming GitLab releases; GitHub-release cycles, some prerelease/ordering cases, and
   cross-major or mixed-train anchors beyond the observed cases.
 * Windows 4D Server and native Intel/AMD hardware.
-* The Python/native differential comparison runs on **Linux only**: macOS writes HFS paths in the lock and Windows uses
-  drive paths, and those platforms' normalisation is not implemented or verified. The native unit tests run on
-  the CI matrix; end-to-end tool4d LSP analysis with the native manager has not been run on macOS or Windows
-  from this repository's development environment.
-* Real tool4d runtime acceptance (`COMPONENT LIST` is startup-only and insufficient; the LSP workspace response is the criterion) is
-  unchanged by this work and was not re-run for the native manager.
+* The Python/native differential comparison (mock provider) runs on Linux, macOS and Windows in CI; only path
+  spellings (HFS and Windows paths) and Windows CRLF line endings are normalised. It uses a mock provider, never a
+  live one.
+* Real tool4d LSP analysis with the native manager (CI job `native-dependency-manager`, macOS and Windows) is
+  verified for one fixture with one GitHub component, online and offline, against the Python manager. Other
+  projects, GitLab components and the Linux backend are not covered by a real runtime run.
+* Acceptance means the LSP workspace response, not a startup-only `COMPONENT LIST`.
