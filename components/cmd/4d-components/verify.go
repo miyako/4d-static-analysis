@@ -195,7 +195,7 @@ func runVerify(args []string, stdout, stderr writer) int {
 		}
 		rec, ok := records[key+"/"+ojson.Str(e.Val("tag"))]
 		if !ok {
-			problems = append(problems, fmt.Sprintf("%s: no stored archive for %s@%s", name, strings.TrimPrefix(key, ojson.Str(strings.SplitN(key, "/", 2)[0])+"/"), ojson.Str(e.Val("tag"))))
+			problems = append(problems, fmt.Sprintf("%s: no stored archive for %s@%s", name, strings.SplitN(key, "/", 2)[1], ojson.Str(e.Val("tag"))))
 		} else if msg := rec.check(); msg != "" {
 			problems = append(problems, fmt.Sprintf("%s: stored archive %s@%s: %s", name, rec.repo, rec.tag, msg))
 		}

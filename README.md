@@ -340,6 +340,25 @@ cache cannot change what is installed; it only avoids repeated downloads and let
 `dependencies: offline` work on hosted runners. Set `cache-dependencies: "false"`
 to turn it off.
 
+### Native dependency manager (opt-in)
+
+The Go executable [`4d-components`](components/README.md) is an independent implementation of the same
+manager: no Python, no tool4d, no Actions. It writes the same report and lock formats and shares the archive
+store, so it can replace the pinned Python script behind the same analyzer logic:
+
+```sh
+sonar-4d <root> --output <dir> --native-tool <tool4d> --project <.4DProject> \
+  --dependency-manager native --dependency-manager-path <4d-components>
+```
+
+In the action, set `dependency-manager: native`; the action builds the executable from its own reviewed source
+(Go version from `components/go.mod`). The default stays `python` until the native manager's parity is accepted for
+the platforms you use. The exact rules, the evidence behind them, the intentional differences and what is **not**
+established (notably: the Python/native differential comparison runs on Linux only, and no real tool4d LSP run
+with the native manager has been done on macOS or Windows from this repository) are in
+[`docs/component-manager-behavior.md`](docs/component-manager-behavior.md). An unprovisioned native manager is an
+error, never a silent fall back to Python, and incomplete dependency resolution still makes the analysis incomplete (exit `2`).
+
 ## Scope and next direction
 
 The next substantive gap is exercising the packaged plugin and reports against
