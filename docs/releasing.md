@@ -2,14 +2,14 @@
 
 Releases are created by the **Release** workflow (`.github/workflows/release.yml`), manually, from `main`. **Signing is
 mandatory**: the workflow fails before building if a required secret is missing, and it creates no release unless
-every artifact is signed. An unsigned release cannot be produced by this workflow.
+the artifacts are signed as described below. **One item is pending: Windows Authenticode** (see "Pending").
 
 ## What is signed
 
 | Artifact | Signature | Checked by the workflow |
 | --- | --- | --- |
 | macOS executables (arm64, amd64) | Developer ID Application, hardened runtime, secure timestamp, **notarized by Apple** | `codesign --verify --strict`, the signing authority must be `Developer ID Application` (ad-hoc is rejected), `notarytool` must report `Accepted` |
-| Windows executables (amd64, arm64) | Authenticode, SHA-256, RFC 3161 timestamp | `signtool verify /pa` |
+| Windows executables (amd64, arm64) | Authenticode, SHA-256, RFC 3161 timestamp. **Pending**, see below | `signtool verify /pa` (once signed) |
 | Every archive and `SHA256SUMS` | Sigstore keyless (`cosign sign-blob`), bundle `<file>.sigstore.json` | produced by the workflow; verify with `cosign verify-blob` |
 | Every archive | GitHub build-provenance attestation | `gh attestation verify <file> --repo miyako/4d-static-analysis` |
 
@@ -28,14 +28,24 @@ Repository Actions secrets (Settings, Secrets and variables, Actions):
 | `NOTARYTOOL_APPLE_ID` | the Apple ID used for notarization | every run |
 | `NOTARYTOOL_PASSWORD` | an app-specific password for that Apple ID | every run |
 | `NOTARYTOOL_TEAM_ID` | the Apple Developer team ID | every run |
-| `WINDOWS_CERTIFICATE_PFX_BASE64` | an Authenticode code-signing certificate with its private key as `.pfx`, base64-encoded | publishing |
-| `WINDOWS_CERTIFICATE_PASSWORD` | the `.pfx` password | publishing |
+| `WINDOWS_CERTIFICATE_PFX_BASE64` | an Authenticode code-signing certificate with its private key as `.pfx`, base64-encoded | Windows signing (pending) |
+| `WINDOWS_CERTIFICATE_PASSWORD` | the `.pfx` password | Windows signing (pending) |
 
 The signing identity is not a secret: the workflow takes the Developer ID Application identity of the team
-`NOTARYTOOL_TEAM_ID` from the certificate. The Windows secrets are **required to publish**; without them a dry run
-still tests the macOS path and warns that Windows was not signed, but a real release is refused. Use credentials
+`NOTARYTOOL_TEAM_ID` from the certificate. Use credentials
 dedicated to this repository and rotate them if a run is ever compromised. They are exposed only to the check and
 signing jobs on GitHub-hosted runners, and the keychain and certificate files are deleted at the end of each run.
+
+## Pending: Windows Authenticode
+
+No Authenticode certificate is available yet, so the Windows secrets above are not set. Until they are:
+
+- The workflow warns, skips Windows signing and publishes the Windows executables as
+  `4d-components-<version>-windows-<arch>-unsigned.zip`. They are still covered by the Sigstore bundle, the build-provenance
+  attestation and `SHA256SUMS`, but carry no Authenticode signature (Windows SmartScreen may warn).
+- The release notes **must say that Windows Authenticode signing is pending**; the workflow refuses to publish otherwise.
+- As soon as both Windows secrets are set, the workflow signs and verifies the Windows executables automatically, the
+  `-unsigned` suffix disappears, and release notes that call any binary unsigned are refused again. Nothing else changes.
 
 ## Releasing
 
@@ -50,6 +60,7 @@ signing jobs on GitHub-hosted runners, and the keychain and certificate files ar
 
 ## Status
 
-v0.3.0 was released **before** this requirement and its binaries are unsigned (its release notes say so). The
-first signed release will be the next one. This workflow has not yet been run with real certificates, so the
-signing steps are unverified until the first dry run.
+v0.3.0 was released **before** this requirement and its binaries are unsigned (its release notes say so). The next
+release will have signed and notarized macOS binaries, Sigstore-signed archives and attestations, and unsigned Windows
+executables until Authenticode is set up. A dry run has verified macOS signing and notarization (status `Accepted`),
+packaging, the Sigstore signing and the attestation; the Windows signing steps are still untested.

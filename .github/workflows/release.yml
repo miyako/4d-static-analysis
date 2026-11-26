@@ -7,7 +7,9 @@ name: Release
 # unless every artifact is signed:
 #   * macOS: Developer ID Application signature with the hardened runtime and a secure timestamp, notarized by Apple
 #     (notarytool must report "Accepted").
-#   * Windows: Authenticode signature with an RFC 3161 timestamp (verified with signtool).
+#   * Windows: Authenticode signature with an RFC 3161 timestamp (verified with signtool). PENDING: until the
+#     certificate secrets exist, Windows executables are published as `...-windows-<arch>-unsigned` archives, still
+#     covered by Sigstore and the attestation, and the release notes must say that Authenticode is pending.
 #   * Every archive and SHA256SUMS: Sigstore (cosign keyless) bundle, plus a GitHub build-provenance attestation.
 # Required secrets are documented in docs/releasing.md.
 on:
@@ -52,39 +54,41 @@ jobs:
           WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if [[ "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::Release from main only"; exit 1; fi
+          if [[ "$PUBLISH" == true && "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::A release is published from main only"; exit 1; fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z"; exit 1; fi
           if [[ "$PUBLISH" != true && "$PUBLISH" != false ]]; then echo "::error::publish must be true or false"; exit 1; fi
+          missing=0
+          for name in APPLE_DEVELOPER_ID_CERTIFICATE APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD \
+                      NOTARYTOOL_APPLE_ID NOTARYTOOL_PASSWORD NOTARYTOOL_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1; fi
+          done
+          # Authenticode is PENDING until a certificate is available: without both secrets Windows is not signed.
+          windows=true
+          for name in WINDOWS_CERTIFICATE_PFX_BASE64 WINDOWS_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!name}" ]]; then windows=false; fi
+          done
+          if [[ "$windows" == false ]]; then
+            echo "::warning::Windows Authenticode signing is pending (secrets not set): Windows executables will be published unsigned"
+          fi
           # A dry run (publish=false) only builds, signs and notarizes: it creates no tag and no release, so the version
           # files, the release notes and the tag are checked only when publishing.
           if [[ "$PUBLISH" == true ]]; then
             for file in pyproject.toml sonar4d/__init__.py sonar-plugin/pom.xml; do
               grep -q "\"\?$VERSION\"\?" "$file" || { echo "::error::$file is not at $VERSION"; exit 1; }
             done
-            test -f "docs/release-notes/v$VERSION.md" || { echo "::error::docs/release-notes/v$VERSION.md is missing"; exit 1; }
-            if grep -qi "not signed\|unsigned" "docs/release-notes/v$VERSION.md"; then
-              echo "::error::The release notes say the binaries are unsigned; releases must be signed"; exit 1
+            notes="docs/release-notes/v$VERSION.md"
+            test -f "$notes" || { echo "::error::$notes is missing"; exit 1; }
+            if [[ "$windows" == true ]]; then
+              if grep -qi "not signed\|unsigned" "$notes"; then
+                echo "::error::The release notes say the binaries are unsigned, but they will be signed"; exit 1
+              fi
+            elif ! grep -qi "authenticode" "$notes" || ! grep -qi "pending" "$notes"; then
+              echo "::error::Windows is unsigned: the release notes must say that Windows Authenticode signing is pending"; exit 1
             fi
             if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
               echo "::error::Tag v$VERSION already exists"; exit 1
             fi
           fi
-          missing=0
-          for name in APPLE_DEVELOPER_ID_CERTIFICATE APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD \
-                      NOTARYTOOL_APPLE_ID NOTARYTOOL_PASSWORD NOTARYTOOL_TEAM_ID; do
-            if [[ -z "${!name}" ]]; then echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1; fi
-          done
-          windows=true
-          for name in WINDOWS_CERTIFICATE_PFX_BASE64 WINDOWS_CERTIFICATE_PASSWORD; do
-            if [[ -z "${!name}" ]]; then
-              windows=false
-              if [[ "$PUBLISH" == true ]]; then
-                echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1
-              else
-                echo "::warning::Windows signing secret $name is not set: this dry run does not sign Windows executables, and a real release would be refused"
-              fi
-            fi
-          done
           echo "windows=$windows" >> "$GITHUB_OUTPUT"
           exit $missing
       - name: Tests
@@ -180,7 +184,12 @@ jobs:
           if result.get("status") != "Accepted":
               sys.exit(f"::error::notarization was not accepted: {result.get('status')}")
           PY
-            "$bin" version
+            # The artifact download drops the executable bit. Only the binary that matches this runner can be run.
+            chmod +x "$bin"
+            case "$(uname -m)-$arch" in
+              arm64-arm64|x86_64-amd64) "$bin" version ;;
+              *) echo "not running the $arch binary on $(uname -m)" ;;
+            esac
           done
       - name: Remove the keychain and certificate
         if: always()
@@ -228,8 +237,8 @@ jobs:
 
   publish:
     needs: [check, build, sign-macos, sign-windows]
-    # Windows signing may be skipped only in a dry run, and only when its secrets are absent.
-    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && (needs.sign-windows.result == 'success' || (needs.sign-windows.result == 'skipped' && inputs.publish != 'true')) }}
+    # Windows Authenticode is pending: its signing job is skipped when the certificate secrets are absent.
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -247,13 +256,16 @@ jobs:
           mkdir -p dist stage
           # Linux binaries come straight from the build; macOS and Windows only from the signing jobs.
           for dir in artifacts/bin-linux-*; do cp -R "$dir"/* stage/; done
-          expected=4
-          for dir in artifacts/signed-darwin artifacts/signed-windows; do
-            if [[ -d "$dir" ]]; then
-              for sub in "$dir"/*; do cp -R "$sub"/* stage/; done
-            fi
-          done
-          if [[ -d artifacts/signed-windows ]]; then expected=6; fi
+          for sub in artifacts/signed-darwin/*; do cp -R "$sub"/* stage/; done
+          if [[ -d artifacts/signed-windows ]]; then
+            for sub in artifacts/signed-windows/*; do cp -R "$sub"/* stage/; done
+          else
+            # Authenticode is pending: the unsigned Windows executables are published, and named as such.
+            echo "::warning::Publishing UNSIGNED Windows executables (Authenticode signing is pending)"
+            for dir in artifacts/bin-windows-*; do
+              for sub in "$dir"/*; do cp -R "$sub" "stage/$(basename "$sub")-unsigned"; done
+            done
+          fi
           ls -R stage
           for platform in stage/*; do
             name="4d-components-$VERSION-$(basename "$platform")"
@@ -264,7 +276,7 @@ jobs:
               tar -czf "dist/$name.tar.gz" -C "$platform" 4d-components
             fi
           done
-          test "$(ls dist | wc -l)" -eq "$expected"
+          test "$(ls dist | wc -l)" -eq 6
           (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
       - uses: sigstore/cosign-installer@v3
       - name: Sign the archives and the checksums with Sigstore
