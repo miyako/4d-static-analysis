@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.github.miyako.sonar</groupId>
   <artifactId>sonar-fourd-plugin</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
   <packaging>sonar-plugin</packaging>
   <name>4D Community Plugin for SonarQube</name>
   <description>4D language registration for SonarQube; external issues use the built-in generic report importer.</description>
