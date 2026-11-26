@@ -16,25 +16,26 @@ every artifact is signed. An unsigned release cannot be produced by this workflo
 Linux executables have no platform signature; they are covered by the Sigstore bundle and the attestation. A bare
 Mach-O command-line tool cannot carry a stapled notarization ticket; Gatekeeper checks notarization online.
 
-## One-time setup
+## Secrets
 
-Create a GitHub **environment** named `release` (Settings, Environments). Restrict it to the `main` branch and,
-if you want a human gate, add required reviewers. Add these secrets to it (or to the repository):
+Repository Actions secrets (Settings, Secrets and variables, Actions):
 
-| Secret | Content |
-| --- | --- |
-| `APPLE_CERTIFICATE_P12_BASE64` | the *Developer ID Application* certificate and private key, exported as `.p12`, base64-encoded |
-| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
-| `APPLE_SIGNING_IDENTITY` | the identity name, for example `Developer ID Application: Name (TEAMID)` |
-| `APPLE_NOTARY_KEY_BASE64` | an App Store Connect API key (`.p8`), base64-encoded |
-| `APPLE_NOTARY_KEY_ID` | that key's ID |
-| `APPLE_NOTARY_ISSUER_ID` | the issuer ID of the App Store Connect team |
-| `WINDOWS_CERTIFICATE_PFX_BASE64` | an Authenticode code-signing certificate and private key as `.pfx`, base64-encoded |
-| `WINDOWS_CERTIFICATE_PASSWORD` | the `.pfx` password |
+| Secret | Content | Needed for |
+| --- | --- | --- |
+| `APPLE_DEVELOPER_ID_CERTIFICATE` | the *Developer ID Application* certificate with its private key, exported as `.p12` and base64-encoded | every run |
+| `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD` | the `.p12` password | every run |
+| `KEYCHAIN_PASSWORD` | a password for the temporary keychain the run creates | every run |
+| `NOTARYTOOL_APPLE_ID` | the Apple ID used for notarization | every run |
+| `NOTARYTOOL_PASSWORD` | an app-specific password for that Apple ID | every run |
+| `NOTARYTOOL_TEAM_ID` | the Apple Developer team ID | every run |
+| `WINDOWS_CERTIFICATE_PFX_BASE64` | an Authenticode code-signing certificate with its private key as `.pfx`, base64-encoded | publishing |
+| `WINDOWS_CERTIFICATE_PASSWORD` | the `.pfx` password | publishing |
 
-Use credentials dedicated to this repository. Rotate them if a workflow run is ever compromised; they are only
-exposed to the signing jobs, which run on GitHub-hosted runners, and the keychain and key files are deleted at the
-end of each run.
+The signing identity is not a secret: the workflow takes the Developer ID Application identity of the team
+`NOTARYTOOL_TEAM_ID` from the certificate. The Windows secrets are **required to publish**; without them a dry run
+still tests the macOS path and warns that Windows was not signed, but a real release is refused. Use credentials
+dedicated to this repository and rotate them if a run is ever compromised. They are exposed only to the check and
+signing jobs on GitHub-hosted runners, and the keychain and certificate files are deleted at the end of each run.
 
 ## Releasing
 

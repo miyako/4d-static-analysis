@@ -9,7 +9,7 @@ name: Release
 #     (notarytool must report "Accepted").
 #   * Windows: Authenticode signature with an RFC 3161 timestamp (verified with signtool).
 #   * Every archive and SHA256SUMS: Sigstore (cosign keyless) bundle, plus a GitHub build-provenance attestation.
-# Required secrets and the `release` environment are documented in docs/releasing.md.
+# Required secrets are documented in docs/releasing.md.
 on:
   workflow_dispatch:
     inputs:
@@ -30,7 +30,8 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
-    environment: release
+    outputs:
+      windows: ${{ steps.check.outputs.windows }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -38,15 +39,16 @@ jobs:
           go-version-file: components/go.mod
           cache: false
       - name: Check the version, the tag and the signing secrets
+        id: check
         shell: bash
         env:
           PUBLISH: ${{ inputs.publish }}
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+          APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          NOTARYTOOL_APPLE_ID: ${{ secrets.NOTARYTOOL_APPLE_ID }}
+          NOTARYTOOL_PASSWORD: ${{ secrets.NOTARYTOOL_PASSWORD }}
+          NOTARYTOOL_TEAM_ID: ${{ secrets.NOTARYTOOL_TEAM_ID }}
           WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
@@ -68,11 +70,22 @@ jobs:
             fi
           fi
           missing=0
-          for name in APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-                      APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID \
-                      WINDOWS_CERTIFICATE_PFX_BASE64 WINDOWS_CERTIFICATE_PASSWORD; do
+          for name in APPLE_DEVELOPER_ID_CERTIFICATE APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD \
+                      NOTARYTOOL_APPLE_ID NOTARYTOOL_PASSWORD NOTARYTOOL_TEAM_ID; do
             if [[ -z "${!name}" ]]; then echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1; fi
           done
+          windows=true
+          for name in WINDOWS_CERTIFICATE_PFX_BASE64 WINDOWS_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              windows=false
+              if [[ "$PUBLISH" == true ]]; then
+                echo "::error::Required signing secret $name is not set (see docs/releasing.md)"; missing=1
+              else
+                echo "::warning::Windows signing secret $name is not set: this dry run does not sign Windows executables, and a real release would be refused"
+              fi
+            fi
+          done
+          echo "windows=$windows" >> "$GITHUB_OUTPUT"
           exit $missing
       - name: Tests
         working-directory: components
@@ -120,7 +133,6 @@ jobs:
   sign-macos:
     needs: build
     runs-on: macos-latest
-    environment: release
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -129,35 +141,37 @@ jobs:
       - name: Sign with Developer ID and notarize
         shell: bash
         env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+          APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          NOTARYTOOL_APPLE_ID: ${{ secrets.NOTARYTOOL_APPLE_ID }}
+          NOTARYTOOL_PASSWORD: ${{ secrets.NOTARYTOOL_PASSWORD }}
+          NOTARYTOOL_TEAM_ID: ${{ secrets.NOTARYTOOL_TEAM_ID }}
         run: |
           set -euo pipefail
           keychain="$RUNNER_TEMP/release.keychain-db"
-          keychain_password="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          echo "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
-          security create-keychain -p "$keychain_password" "$keychain"
+          echo "$APPLE_DEVELOPER_ID_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
           security set-keychain-settings -lut 3600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          # The identity comes from the certificate itself: a Developer ID Application identity of the notarization team.
+          security find-identity -v -p codesigning "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" | grep "($NOTARYTOOL_TEAM_ID)" | head -n1 | awk '{print $2}')"
+          test -n "$identity" || { echo "::error::No Developer ID Application identity of team $NOTARYTOOL_TEAM_ID in the certificate"; exit 1; }
           for dir in in/bin-darwin-*; do
             arch="${dir##*-}"
             bin="$dir/darwin-$arch/4d-components"
-            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+            codesign --force --options runtime --timestamp --keychain "$keychain" --sign "$identity" "$bin"
             codesign --verify --strict --verbose=2 "$bin"
             # an ad-hoc or self-signed identity is not acceptable
             codesign -dv --verbose=4 "$bin" 2>&1 | grep -q "Authority=Developer ID Application" \
               || { echo "::error::$bin is not signed with a Developer ID Application certificate"; exit 1; }
             ditto -c -k --keepParent "$bin" "$RUNNER_TEMP/notarize-$arch.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/notarize-$arch.zip" --key "$RUNNER_TEMP/notary-key.p8" \
-              --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --output-format json \
+            xcrun notarytool submit "$RUNNER_TEMP/notarize-$arch.zip" --apple-id "$NOTARYTOOL_APPLE_ID" \
+              --password "$NOTARYTOOL_PASSWORD" --team-id "$NOTARYTOOL_TEAM_ID" --wait --output-format json \
               > "$RUNNER_TEMP/notarize-$arch.json" || true
             cat "$RUNNER_TEMP/notarize-$arch.json"
             python3 - "$RUNNER_TEMP/notarize-$arch.json" <<'PY'
@@ -168,12 +182,12 @@ jobs:
           PY
             "$bin" version
           done
-      - name: Remove the keychain and keys
+      - name: Remove the keychain and certificate
         if: always()
         shell: bash
         run: |
           security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
-          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary-key.p8"
+          rm -f "$RUNNER_TEMP/certificate.p12"
       - uses: actions/upload-artifact@v4
         with:
           name: signed-darwin
@@ -181,9 +195,9 @@ jobs:
           if-no-files-found: error
 
   sign-windows:
-    needs: build
+    needs: [check, build]
+    if: needs.check.outputs.windows == 'true'
     runs-on: windows-latest
-    environment: release
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -214,8 +228,9 @@ jobs:
 
   publish:
     needs: [check, build, sign-macos, sign-windows]
+    # Windows signing may be skipped only in a dry run, and only when its secrets are absent.
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && (needs.sign-windows.result == 'success' || (needs.sign-windows.result == 'skipped' && inputs.publish != 'true')) }}
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
       id-token: write
@@ -232,9 +247,13 @@ jobs:
           mkdir -p dist stage
           # Linux binaries come straight from the build; macOS and Windows only from the signing jobs.
           for dir in artifacts/bin-linux-*; do cp -R "$dir"/* stage/; done
+          expected=4
           for dir in artifacts/signed-darwin artifacts/signed-windows; do
-            for sub in "$dir"/*; do cp -R "$sub"/* stage/ 2>/dev/null || cp -R "$sub" stage/; done
+            if [[ -d "$dir" ]]; then
+              for sub in "$dir"/*; do cp -R "$sub"/* stage/; done
+            fi
           done
+          if [[ -d artifacts/signed-windows ]]; then expected=6; fi
           ls -R stage
           for platform in stage/*; do
             name="4d-components-$VERSION-$(basename "$platform")"
@@ -245,7 +264,7 @@ jobs:
               tar -czf "dist/$name.tar.gz" -C "$platform" 4d-components
             fi
           done
-          test "$(ls dist | wc -l)" -eq 6
+          test "$(ls dist | wc -l)" -eq "$expected"
           (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
       - uses: sigstore/cosign-installer@v3
       - name: Sign the archives and the checksums with Sigstore
