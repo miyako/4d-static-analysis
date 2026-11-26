@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sonar-4d"
-version = "0.3.0"
+version = "0.4.0"
 description = "4D Community Plugin for SonarQube: headless analysis foundation"
 requires-python = ">=3.11"
 license = {text = "MIT"}
