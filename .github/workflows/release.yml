@@ -52,7 +52,7 @@ jobs:
           WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if [[ "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::Release from main only"; exit 1; fi
+          if [[ "$PUBLISH" == true && "$GITHUB_REF" != refs/heads/main ]]; then echo "::error::A release is published from main only"; exit 1; fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z"; exit 1; fi
           if [[ "$PUBLISH" != true && "$PUBLISH" != false ]]; then echo "::error::publish must be true or false"; exit 1; fi
           # A dry run (publish=false) only builds, signs and notarizes: it creates no tag and no release, so the version
@@ -180,7 +180,12 @@ jobs:
           if result.get("status") != "Accepted":
               sys.exit(f"::error::notarization was not accepted: {result.get('status')}")
           PY
-            "$bin" version
+            # The artifact download drops the executable bit. Only the binary that matches this runner can be run.
+            chmod +x "$bin"
+            case "$(uname -m)-$arch" in
+              arm64-arm64|x86_64-amd64) "$bin" version ;;
+              *) echo "not running the $arch binary on $(uname -m)" ;;
+            esac
           done
       - name: Remove the keychain and certificate
         if: always()
